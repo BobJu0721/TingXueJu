@@ -1,5 +1,25 @@
 # 更新公告
 
+## v1.2
+
+這版把 Android 底部三大金剛鍵隱藏起來，讓聊天畫面更沉浸。
+
+- 進入 App 後自動隱藏 Android navigation bar。
+- 保留狀態列，不影響時間、電量與通知區顯示。
+- 從螢幕底部上滑時，可以暫時叫出系統導覽鍵。
+- Android 版本資訊更新為 `versionName = 1.2`、`versionCode = 3`。
+
+APK：
+
+- `apk/TingXueJu-v1.2-debug.apk`
+- `apk/TingXueJu-debug.apk`
+
+SHA-256：
+
+```text
+401BF1030CAFF5812B4A4F26AACFDBBCC90BF446F2FFC07800EBD8F0EECE6F9E
+```
+
 ## v1.1
 
 這版把聊天操作做得更順手，也針對長螢幕手機調整了底部導覽。

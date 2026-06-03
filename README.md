@@ -10,12 +10,14 @@
 
 歷史版本 APK：
 
+- [v1.2](apk/TingXueJu-v1.2-debug.apk)
 - [v1.1](apk/TingXueJu-v1.1-debug.apk)
 - [v1.0](apk/TingXueJu-v1.0-debug.apk)
 
 更新公告：
 
 - [CHANGELOG.md](CHANGELOG.md)
+- [v1.2 更新公告](releases/v1.2.md)
 - [v1.1 更新公告](releases/v1.1.md)
 - [v1.0 更新公告](releases/v1.0.md)
 
