@@ -1,6 +1,6 @@
-# Android AI 聊天 App 原型（名稱未定）
+# 聽雪居
 
-這是一個自用 Android 12+ 原生聊天 App 原型。專案目前只支援 Android，不處理 iOS、Google Play 上架、帳號系統或雲端同步。
+聽雪居是一個自用 Android 12+ 原生 AI 聊天 App 原型。專案目前只支援 Android，不處理 iOS、Google Play 上架、帳號系統或雲端同步。
 
 ## 功能
 
@@ -34,7 +34,6 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## 注意
 
-- App 名稱尚未決定，目前只使用暫時名稱。
 - Debug APK 適合自用與測試，不適合作為正式發布版本。
 - 本機資料解除安裝後會刪除。
 - 自訂 HTTP 端點可使用，但 API Key 與聊天內容可能外洩，建議使用 HTTPS。

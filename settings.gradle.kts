@@ -14,6 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AIChat"
+rootProject.name = "TingXueJu"
 include(":app")
-
