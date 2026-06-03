@@ -1,0 +1,614 @@
+package com.aichat.app
+
+import android.app.Application
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.aichat.app.data.AppDatabase
+import com.aichat.app.data.AppSettings
+import com.aichat.app.data.ConversationEntity
+import com.aichat.app.data.ConversationWorldSetEntity
+import com.aichat.app.data.GenerationContextEntity
+import com.aichat.app.data.MessageEntity
+import com.aichat.app.data.ProfileEntity
+import com.aichat.app.data.ProfileType
+import com.aichat.app.data.Provider
+import com.aichat.app.data.SecretStore
+import com.aichat.app.data.SettingsRepository
+import com.aichat.app.data.WorldEntryEntity
+import com.aichat.app.data.WorldSetEntity
+import com.aichat.app.network.AiApiClient
+import com.aichat.app.network.ApiChatMessage
+import com.aichat.app.network.ApiException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import java.io.IOException
+import java.util.UUID
+
+enum class Screen {
+    CONVERSATIONS, CHAT, SETTINGS, MODELS, CHARACTERS, LIBRARY, PROFILE_EDIT,
+    WORLD_SETS, WORLD_SET_EDIT, NEW_CHAT, CHAT_INFO,
+}
+enum class ErrorKind { GENERAL, CONTEXT_LENGTH }
+enum class PendingAction { SEND, RETRY }
+enum class ImportTarget { CHARACTER, PERSONA, WORLD_SET }
+
+data class UiError(
+    val title: String,
+    val message: String,
+    val suggestion: String,
+    val kind: ErrorKind = ErrorKind.GENERAL,
+)
+
+data class PendingDocumentImport(
+    val target: ImportTarget,
+    val document: ImportedDocument,
+) {
+    val estimatedCalls: Int
+        get() = ((document.text.length + IMPORT_CHUNK_SIZE - 1) / IMPORT_CHUNK_SIZE).coerceAtLeast(1) + 1
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val dao = AppDatabase.get(application).chatDao()
+    private val settingsRepository = SettingsRepository(application)
+    private val secretStore = SecretStore(application)
+    private val api = AiApiClient()
+
+    val settings = settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
+    val conversations = dao.observeConversations().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val characters = dao.observeProfiles(ProfileType.CHARACTER).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val personas = dao.observeProfiles(ProfileType.PERSONA).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val worldSets = dao.observeWorldSets().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val _selectedConversationId = MutableStateFlow<String?>(null)
+    val selectedConversationId = _selectedConversationId.asStateFlow()
+    val messages = _selectedConversationId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList()) else dao.observeMessages(id)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val generationContexts = _selectedConversationId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList()) else dao.observeGenerationContexts(id)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val activeWorldSetIds = _selectedConversationId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList()) else dao.observeConversationWorldSetIds(id)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val _screen = MutableStateFlow(Screen.CONVERSATIONS)
+    val screen = _screen.asStateFlow()
+    private val _input = MutableStateFlow("")
+    val input = _input.asStateFlow()
+    private val _isStreaming = MutableStateFlow(false)
+    val isStreaming = _isStreaming.asStateFlow()
+    private val _error = MutableStateFlow<UiError?>(null)
+    val error = _error.asStateFlow()
+    private val _showUnsafeHttpWarning = MutableStateFlow(false)
+    val showUnsafeHttpWarning = _showUnsafeHttpWarning.asStateFlow()
+    private val _models = MutableStateFlow<List<String>>(emptyList())
+    val models = _models.asStateFlow()
+    private val _isLoadingModels = MutableStateFlow(false)
+    val isLoadingModels = _isLoadingModels.asStateFlow()
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice = _notice.asStateFlow()
+    private val _editingProfile = MutableStateFlow<ProfileDraft?>(null)
+    val editingProfile = _editingProfile.asStateFlow()
+    private val _editingWorldSet = MutableStateFlow<WorldSetEntity?>(null)
+    val editingWorldSet = _editingWorldSet.asStateFlow()
+    val editingWorldEntries = _editingWorldSet.flatMapLatest { worldSet ->
+        if (worldSet == null) flowOf(emptyList()) else dao.observeWorldEntries(worldSet.id)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    private val _pendingImport = MutableStateFlow<PendingDocumentImport?>(null)
+    val pendingImport = _pendingImport.asStateFlow()
+    private val _isImporting = MutableStateFlow(false)
+    val isImporting = _isImporting.asStateFlow()
+    private val _selectedConversation = MutableStateFlow<ConversationEntity?>(null)
+    val selectedConversation = _selectedConversation.asStateFlow()
+    private val _newChatCharacter = MutableStateFlow<ProfileEntity?>(null)
+    val newChatCharacter = _newChatCharacter.asStateFlow()
+    private val _newChatPersonaId = MutableStateFlow<String?>(null)
+    val newChatPersonaId = _newChatPersonaId.asStateFlow()
+    private val _newChatWorldSetIds = MutableStateFlow<Set<String>>(emptySet())
+    val newChatWorldSetIds = _newChatWorldSetIds.asStateFlow()
+    private val _newChatGreeting = MutableStateFlow("")
+    val newChatGreeting = _newChatGreeting.asStateFlow()
+
+    private var pendingAction: PendingAction? = null
+    private var streamJob: Job? = null
+
+    fun setInput(value: String) { _input.value = value }
+    fun openConversations() { _screen.value = Screen.CONVERSATIONS }
+    fun openCharacters() { _screen.value = Screen.CHARACTERS }
+    fun openLibrary() { _screen.value = Screen.LIBRARY }
+    fun openWorldSets() { _screen.value = Screen.WORLD_SETS }
+    fun openSettings() { _screen.value = Screen.SETTINGS }
+    fun openCurrentChat() { _screen.value = Screen.CHAT }
+    fun openModels() { _screen.value = Screen.MODELS; refreshModels() }
+    fun clearError() { _error.value = null }
+    fun clearNotice() { _notice.value = null }
+
+    fun selectConversation(id: String) {
+        _selectedConversationId.value = id
+        viewModelScope.launch { _selectedConversation.value = dao.getConversation(id) }
+        _screen.value = Screen.CHAT
+    }
+
+    fun deleteConversation(conversation: ConversationEntity) {
+        viewModelScope.launch {
+            dao.deleteConversation(conversation)
+            if (_selectedConversationId.value == conversation.id) _selectedConversationId.value = null
+        }
+    }
+
+    fun beginNewChat(characterId: String? = null) {
+        viewModelScope.launch {
+            _newChatCharacter.value = dao.getProfile(characterId)
+            _newChatGreeting.value = _newChatCharacter.value?.greeting.orEmpty()
+            _newChatPersonaId.value = null
+            _newChatWorldSetIds.value = emptySet()
+            _screen.value = Screen.NEW_CHAT
+        }
+    }
+
+    fun selectNewChatPersona(id: String?) { _newChatPersonaId.value = id }
+    fun selectNewChatGreeting(greeting: String) { _newChatGreeting.value = greeting }
+    fun toggleNewChatWorldSet(id: String) {
+        _newChatWorldSetIds.value = _newChatWorldSetIds.value.toMutableSet().apply {
+            if (!add(id)) remove(id)
+        }
+    }
+
+    fun createConfiguredConversation() {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val character = _newChatCharacter.value
+            val conversation = ConversationEntity(
+                id = UUID.randomUUID().toString(),
+                title = character?.name?.ifBlank { "新對話" } ?: "新對話",
+                createdAt = now,
+                updatedAt = now,
+                characterId = character?.id,
+                personaId = _newChatPersonaId.value,
+            )
+            dao.upsertConversation(conversation)
+            setConversationWorldSets(conversation.id, _newChatWorldSetIds.value)
+            if (_newChatGreeting.value.isNotBlank()) {
+                dao.upsertMessage(MessageEntity(UUID.randomUUID().toString(), conversation.id, "assistant", _newChatGreeting.value, now + 1))
+            }
+            _selectedConversationId.value = conversation.id
+            _selectedConversation.value = conversation
+            _screen.value = Screen.CHAT
+        }
+    }
+
+    fun openChatInfo() {
+        val id = _selectedConversationId.value ?: return
+        viewModelScope.launch { _selectedConversation.value = dao.getConversation(id) }
+        _screen.value = Screen.CHAT_INFO
+    }
+
+    fun updateConversationPersona(id: String?) {
+        val conversation = _selectedConversation.value ?: return
+        viewModelScope.launch {
+            val updated = conversation.copy(personaId = id)
+            dao.updateConversation(updated)
+            _selectedConversation.value = updated
+            _notice.value = "Persona 已更新"
+        }
+    }
+
+    fun toggleConversationWorldSet(id: String) {
+        val conversationId = _selectedConversationId.value ?: return
+        viewModelScope.launch {
+            val selected = dao.getConversationWorldSetIds(conversationId).toMutableSet()
+            if (!selected.add(id)) selected.remove(id)
+            setConversationWorldSets(conversationId, selected)
+        }
+    }
+
+    fun saveConversationSummary(summary: String) {
+        val conversation = _selectedConversation.value ?: return
+        viewModelScope.launch {
+            val updated = conversation.copy(summary = summary.trim())
+            dao.updateConversation(updated)
+            _selectedConversation.value = updated
+            _notice.value = "摘要已儲存"
+        }
+    }
+
+    private suspend fun setConversationWorldSets(conversationId: String, ids: Set<String>) {
+        dao.clearConversationWorldSets(conversationId)
+        if (ids.isNotEmpty()) dao.addConversationWorldSets(ids.map { ConversationWorldSetEntity(conversationId, it) })
+    }
+
+    fun newProfile(type: ProfileType) {
+        _editingProfile.value = ProfileDraft(type = type)
+        _screen.value = Screen.PROFILE_EDIT
+    }
+
+    fun editProfile(profile: ProfileEntity) {
+        _editingProfile.value = profile.toDraft()
+        _screen.value = Screen.PROFILE_EDIT
+    }
+
+    fun saveProfile(draft: ProfileDraft) {
+        if (draft.name.isBlank()) {
+            _error.value = UiError("缺少名稱", "請替這份設定填寫名稱。", "名稱會顯示在列表與聊天頁。")
+            return
+        }
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val existing = draft.id?.let { dao.getProfile(it) }
+            dao.upsertProfile(
+                ProfileEntity(
+                    id = draft.id ?: UUID.randomUUID().toString(),
+                    type = draft.type,
+                    name = draft.name.trim(),
+                    summary = draft.summary.trim(),
+                    personality = draft.personality.trim(),
+                    background = draft.background.trim(),
+                    exampleDialogue = draft.exampleDialogue.trim(),
+                    greeting = draft.greeting.trim(),
+                    alternateGreetingsJson = toJsonStrings(draft.alternateGreetings),
+                    extraInstructions = draft.extraInstructions.trim(),
+                    createdAt = existing?.createdAt ?: now,
+                    updatedAt = now,
+                ),
+            )
+            _notice.value = "設定已儲存"
+            _screen.value = if (draft.type == ProfileType.CHARACTER) Screen.CHARACTERS else Screen.LIBRARY
+        }
+    }
+
+    fun deleteProfile(profile: ProfileEntity) { viewModelScope.launch { dao.deleteProfile(profile) } }
+
+    fun newWorldSet() {
+        _editingWorldSet.value = null
+        _screen.value = Screen.WORLD_SET_EDIT
+    }
+
+    fun editWorldSet(worldSet: WorldSetEntity) {
+        _editingWorldSet.value = worldSet
+        _screen.value = Screen.WORLD_SET_EDIT
+    }
+
+    fun saveWorldSet(name: String, scanDepth: Int) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val existing = _editingWorldSet.value
+            val worldSet = WorldSetEntity(
+                id = existing?.id ?: UUID.randomUUID().toString(),
+                name = name.trim(),
+                scanDepth = scanDepth.coerceIn(1, 100),
+                createdAt = existing?.createdAt ?: now,
+                updatedAt = now,
+            )
+            dao.upsertWorldSet(worldSet)
+            _editingWorldSet.value = worldSet
+            _notice.value = "世界設定集已儲存"
+        }
+    }
+
+    fun saveWorldEntry(id: String?, title: String, keywords: String, content: String, always: Boolean, enabled: Boolean) {
+        val worldSet = _editingWorldSet.value ?: return
+        if (title.isBlank() || content.isBlank()) return
+        viewModelScope.launch {
+            dao.upsertWorldEntry(
+                WorldEntryEntity(
+                    id = id ?: UUID.randomUUID().toString(),
+                    worldSetId = worldSet.id,
+                    title = title.trim(),
+                    keywordsJson = toJsonStrings(keywords.split(',').map(String::trim).filter(String::isNotBlank)),
+                    content = content.trim(),
+                    alwaysInclude = always,
+                    enabled = enabled,
+                ),
+            )
+        }
+    }
+
+    fun deleteWorldSet(worldSet: WorldSetEntity) { viewModelScope.launch { dao.deleteWorldSet(worldSet) } }
+    fun deleteWorldEntry(entry: WorldEntryEntity) { viewModelScope.launch { dao.deleteWorldEntry(entry) } }
+
+    fun importDocument(uri: Uri, target: ImportTarget) {
+        viewModelScope.launch {
+            runCatching { readImportedDocument(getApplication(), uri) }
+                .onSuccess { document ->
+                    val type = target.profileType()
+                    val directDraft = if (type != null && document.name.endsWith(".json", true)) {
+                        profileDraftFromOwnJson(document.text, type)
+                    } else null
+                    if (directDraft != null) {
+                        _editingProfile.value = directDraft
+                        _screen.value = Screen.PROFILE_EDIT
+                        _notice.value = "已讀取 JSON，請確認內容"
+                    } else {
+                        _pendingImport.value = PendingDocumentImport(target, document)
+                    }
+                }
+                .onFailure { _error.value = mapError(it, "無法匯入文件") }
+        }
+    }
+
+    fun dismissPendingImport() { _pendingImport.value = null }
+
+    fun confirmPendingImport() {
+        val pending = _pendingImport.value ?: return
+        val current = settings.value
+        val apiKey = secretStore.get(current.provider)
+        if (apiKey.isBlank() || current.resolvedBaseUrl.isBlank()) {
+            _pendingImport.value = null
+            _error.value = UiError("缺少 API 設定", "AI 整理文件需要目前供應商的 API Key 與網址。", "請先前往設定頁完成 API 設定。")
+            return
+        }
+        _pendingImport.value = null
+        _isImporting.value = true
+        viewModelScope.launch {
+            runCatching {
+                when (pending.target) {
+                    ImportTarget.CHARACTER, ImportTarget.PERSONA -> {
+                        _editingProfile.value = organizeProfile(pending.document.text, pending.target.profileType()!!, current, apiKey)
+                        _screen.value = Screen.PROFILE_EDIT
+                    }
+                    ImportTarget.WORLD_SET -> {
+                        val draft = organizeWorldSet(pending.document.text, current, apiKey)
+                        saveImportedWorldSet(draft)
+                    }
+                }
+            }.onFailure { _error.value = mapError(it, "AI 整理失敗") }
+            _isImporting.value = false
+        }
+    }
+
+    private suspend fun organizeProfile(text: String, type: ProfileType, settings: AppSettings, key: String): ProfileDraft {
+        val notes = organizeChunks(text, settings, key, "整理其中與單一身份有關的資訊，保留重要細節。")
+        val label = if (type == ProfileType.CHARACTER) "AI 要扮演的角色" else "使用者身份 Persona"
+        val reply = api.completeChat(settings, key, listOf(
+            ApiChatMessage("system", "將文件整理成一份$label。只回傳 JSON，不要 markdown。欄位固定為 name, summary, personality, background, exampleDialogue, greeting, alternateGreetings, extraInstructions。alternateGreetings 必須是字串陣列。"),
+            ApiChatMessage("user", notes),
+        ))
+        return parseAiProfileDraft(reply, type)
+    }
+
+    private suspend fun organizeWorldSet(text: String, settings: AppSettings, key: String): WorldSetDraft {
+        val notes = organizeChunks(text, settings, key, "整理其中的世界觀、地點、人物關係與規則，保留可用細節。")
+        val reply = api.completeChat(settings, key, listOf(
+            ApiChatMessage("system", "將文件拆成可用關鍵詞觸發的世界設定條目。只回傳 JSON，不要 markdown。根物件欄位為 name 與 entries；每個 entry 欄位固定為 title, keywords, content, alwaysInclude。keywords 必須是字串陣列；只有每次都必須知道的核心規則才設 alwaysInclude=true。"),
+            ApiChatMessage("user", notes),
+        ))
+        return parseAiWorldSetDraft(reply)
+    }
+
+    private suspend fun organizeChunks(text: String, settings: AppSettings, key: String, instruction: String): String {
+        val chunks = text.chunked(IMPORT_CHUNK_SIZE)
+        if (chunks.size == 1) return text
+        return chunks.mapIndexed { index, chunk ->
+            api.completeChat(settings, key, listOf(
+                ApiChatMessage("system", "$instruction 這是第 ${index + 1}/${chunks.size} 段。請輸出精簡但完整的純文字筆記。"),
+                ApiChatMessage("user", chunk),
+            ))
+        }.joinToString("\n\n")
+    }
+
+    private suspend fun saveImportedWorldSet(draft: WorldSetDraft) {
+        val now = System.currentTimeMillis()
+        val worldSet = WorldSetEntity(UUID.randomUUID().toString(), draft.name.ifBlank { "匯入的世界設定" }, 10, now, now)
+        dao.upsertWorldSet(worldSet)
+        draft.entries.forEachIndexed { index, entry ->
+            dao.upsertWorldEntry(
+                WorldEntryEntity(
+                    id = UUID.randomUUID().toString(),
+                    worldSetId = worldSet.id,
+                    title = entry.title,
+                    keywordsJson = toJsonStrings(entry.keywords),
+                    content = entry.content,
+                    alwaysInclude = entry.alwaysInclude,
+                    sortOrder = index,
+                ),
+            )
+        }
+        _editingWorldSet.value = worldSet
+        _screen.value = Screen.WORLD_SET_EDIT
+        _notice.value = "AI 已整理世界設定，請確認內容"
+    }
+
+    fun send() {
+        if (_input.value.isBlank() || _isStreaming.value) return
+        runWithUnsafeHttpConfirmation(PendingAction.SEND)
+    }
+    fun retryLastResponse() {
+        if (_selectedConversationId.value == null || _isStreaming.value) return
+        runWithUnsafeHttpConfirmation(PendingAction.RETRY)
+    }
+    fun confirmUnsafeHttp() {
+        _showUnsafeHttpWarning.value = false
+        val action = pendingAction
+        pendingAction = null
+        when (action) {
+            PendingAction.SEND -> startNewMessage()
+            PendingAction.RETRY -> startRetry()
+            null -> Unit
+        }
+    }
+    fun dismissUnsafeHttp() { pendingAction = null; _showUnsafeHttpWarning.value = false }
+    fun stopStreaming() { api.cancelActive(); streamJob?.cancel(); _isStreaming.value = false; _notice.value = "已停止生成" }
+
+    private fun runWithUnsafeHttpConfirmation(action: PendingAction) {
+        if (settings.value.usesUnsafeHttp) { pendingAction = action; _showUnsafeHttpWarning.value = true }
+        else if (action == PendingAction.SEND) startNewMessage() else startRetry()
+    }
+
+    private fun startNewMessage() {
+        val content = _input.value.trim()
+        if (content.isBlank()) return
+        _input.value = ""
+        streamJob = viewModelScope.launch {
+            val conversationId = _selectedConversationId.value ?: run {
+                beginNewChat()
+                _input.value = content
+                _notice.value = "請先確認 Persona 與世界設定"
+                return@launch
+            }
+            val now = System.currentTimeMillis()
+            dao.upsertMessage(MessageEntity(UUID.randomUUID().toString(), conversationId, "user", content, now))
+            dao.getConversation(conversationId)?.let { dao.updateConversation(it.copy(updatedAt = now)) }
+            streamConversation(conversationId)
+        }
+    }
+
+    private fun startRetry() {
+        val conversationId = _selectedConversationId.value ?: return
+        streamJob = viewModelScope.launch {
+            dao.getMessages(conversationId).lastOrNull()?.takeIf { it.role == "assistant" }?.let { dao.deleteMessage(it.id) }
+            streamConversation(conversationId)
+        }
+    }
+
+    private suspend fun streamConversation(conversationId: String, allowAutoSummary: Boolean = true) {
+        val current = settings.value
+        val key = secretStore.get(current.provider)
+        if (key.isBlank() || current.resolvedBaseUrl.isBlank()) {
+            _error.value = UiError("缺少 API 設定", "請設定 ${current.provider.label} 的 API Key 與網址。", "前往設定頁填寫後再試一次。")
+            return
+        }
+        val conversation = dao.getConversation(conversationId) ?: return
+        val history = dao.getMessages(conversationId)
+        val worldIds = dao.getConversationWorldSetIds(conversationId)
+        val worldSets = if (worldIds.isEmpty()) emptyList() else dao.getWorldSets(worldIds)
+        val entries = if (worldIds.isEmpty()) emptyList() else dao.getWorldEntries(worldIds)
+        val prompt = composePrompt(conversation, history, dao.getProfile(conversation.characterId), dao.getProfile(conversation.personaId), worldSets, entries)
+        val assistant = MessageEntity(UUID.randomUUID().toString(), conversationId, "assistant", "", System.currentTimeMillis() + 1)
+        dao.upsertMessage(assistant)
+        _isStreaming.value = true
+        var content = ""
+        try {
+            api.streamChat(current, key, prompt.messages) { token ->
+                content += token
+                dao.upsertMessage(assistant.copy(content = content))
+            }
+            if (content.isBlank()) throw IOException("API 沒有回傳文字內容。")
+            dao.upsertGenerationContext(GenerationContextEntity(assistant.id, toJsonStrings(prompt.activatedEntries.map { it.title })))
+        } catch (_: CancellationException) {
+            if (content.isBlank()) dao.deleteMessage(assistant.id)
+        } catch (error: Throwable) {
+            dao.deleteMessage(assistant.id)
+            if (allowAutoSummary && error is ApiException && error.isContextLengthError) {
+                runCatching { summarizeConversation(conversationId, current, key) }
+                    .onSuccess {
+                        _notice.value = "已摘要較早對話，正在重試"
+                        streamConversation(conversationId, allowAutoSummary = false)
+                    }
+                    .onFailure { _error.value = mapError(it, "自動摘要失敗") }
+            } else {
+                _error.value = mapError(error, "生成失敗")
+            }
+        } finally {
+            _isStreaming.value = false
+        }
+    }
+
+    private suspend fun summarizeConversation(conversationId: String, settings: AppSettings, key: String) {
+        val conversation = dao.getConversation(conversationId) ?: return
+        val history = dao.getMessages(conversationId).filter { it.content.isNotBlank() && it.createdAt > conversation.summaryThroughAt }
+        val older = history.dropLast(8)
+        if (older.isEmpty()) throw IOException("目前沒有足夠的較早訊息可以摘要。")
+        val text = buildString {
+            if (conversation.summary.isNotBlank()) appendLine("既有摘要：\n${conversation.summary}\n")
+            older.forEach { appendLine("${it.role}: ${it.content}") }
+        }
+        val summaries = text.chunked(IMPORT_CHUNK_SIZE).map { chunk ->
+            api.completeChat(settings, key, listOf(
+                ApiChatMessage("system", "將角色扮演對話濃縮成精準的繁體中文前情摘要。保留人物、關係、承諾、事件、位置與尚未解決的事項。只輸出摘要。"),
+                ApiChatMessage("user", chunk),
+            ))
+        }
+        val summary = if (summaries.size == 1) summaries.single() else api.completeChat(settings, key, listOf(
+            ApiChatMessage("system", "合併以下分段摘要，移除重複內容但保留關鍵細節。只輸出合併後摘要。"),
+            ApiChatMessage("user", summaries.joinToString("\n\n")),
+        ))
+        val updated = conversation.copy(summary = summary.trim(), summaryThroughAt = older.maxOf { it.createdAt })
+        dao.updateConversation(updated)
+        _selectedConversation.value = updated
+    }
+
+    fun trimOldestContextAndRetry() {
+        val id = _selectedConversationId.value ?: return
+        clearError()
+        streamJob = viewModelScope.launch {
+            val conversation = dao.getConversation(id) ?: return@launch
+            val history = dao.getMessages(id).filter { it.content.isNotBlank() }
+            if (history.size <= 2) return@launch
+            val kept = history.drop(history.size / 2).first()
+            dao.updateConversation(conversation.copy(contextStartAt = kept.createdAt))
+            _notice.value = "已裁切較早訊息"
+            streamConversation(id, allowAutoSummary = false)
+        }
+    }
+
+    fun saveSettings(provider: Provider, baseUrl: String, model: String, apiKey: String, darkTheme: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.save(AppSettings(provider, baseUrl.trim(), model.ifBlank { provider.defaultModel }.trim(), darkTheme))
+            if (apiKey.isNotBlank()) secretStore.put(provider, apiKey.trim())
+            _notice.value = "設定已儲存"
+            _screen.value = Screen.CONVERSATIONS
+        }
+    }
+    fun currentApiKey(provider: Provider): String = secretStore.get(provider)
+    fun refreshModels() {
+        if (_isLoadingModels.value) return
+        viewModelScope.launch {
+            val current = settings.value
+            val key = secretStore.get(current.provider)
+            if (key.isBlank()) { _error.value = UiError("缺少 API Key", "請先填入 API Key。", "前往設定頁完成設定。"); return@launch }
+            _isLoadingModels.value = true
+            runCatching { api.listModels(current, key) }
+                .onSuccess { _models.value = it }
+                .onFailure { _error.value = mapError(it, "無法載入模型") }
+            _isLoadingModels.value = false
+        }
+    }
+    fun chooseModel(model: String) {
+        viewModelScope.launch {
+            settingsRepository.save(settings.value.copy(model = model))
+            _notice.value = "已選擇 $model"
+            _screen.value = Screen.CHAT
+        }
+    }
+
+    private fun mapError(error: Throwable, title: String): UiError = when (error) {
+        is ApiException -> when {
+            error.isContextLengthError -> UiError("上下文過長", "API 回報 ${error.statusCode}：${error.message}", "可裁切舊訊息並重試，或建立新對話。", ErrorKind.CONTEXT_LENGTH)
+            error.statusCode == 401 || error.statusCode == 403 -> UiError("API Key 無效", "API 回報 ${error.statusCode}：${error.message}", "請檢查 Key、模型與供應商設定。")
+            error.statusCode == 429 -> UiError("額度不足或請求過快", "API 回報 429：${error.message}", "請稍後再試，或切換模型與供應商。")
+            else -> UiError(title, "API 回報 ${error.statusCode}：${error.message}", "請檢查模型與供應商設定。")
+        }
+        is IOException -> UiError(title, error.message ?: "網路連線失敗。", "請檢查網路與 API 設定。")
+        else -> UiError(title, error.message ?: "發生未知錯誤。", "請稍後再試。")
+    }
+}
+
+private fun ImportTarget.profileType(): ProfileType? = when (this) {
+    ImportTarget.CHARACTER -> ProfileType.CHARACTER
+    ImportTarget.PERSONA -> ProfileType.PERSONA
+    ImportTarget.WORLD_SET -> null
+}
+
+private fun ProfileEntity.toDraft() = ProfileDraft(
+    id = id,
+    type = type,
+    name = name,
+    summary = summary,
+    personality = personality,
+    background = background,
+    exampleDialogue = exampleDialogue,
+    greeting = greeting,
+    alternateGreetings = jsonStrings(alternateGreetingsJson),
+    extraInstructions = extraInstructions,
+)

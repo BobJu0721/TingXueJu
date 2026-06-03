@@ -1,0 +1,11 @@
+.gradle/
+.idea/
+.android-sdk/
+.android-avd/
+.gradle-dist/
+local.properties
+commandlinetools-*.zip
+gradle-*-bin.zip
+build/
+app/build/
+*.iml
