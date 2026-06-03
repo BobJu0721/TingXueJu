@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -53,8 +54,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -83,7 +82,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.ConversationEntity
@@ -162,11 +163,43 @@ fun AIChatApp(viewModel: MainViewModel) {
 
 @Composable
 private fun RootBottomBar(viewModel: MainViewModel, selected: Screen) {
-    NavigationBar {
-        NavigationBarItem(selected == Screen.CONVERSATIONS, viewModel::openConversations, { Icon(Icons.Default.Chat, null) }, label = { Text("對話") })
-        NavigationBarItem(selected == Screen.CHARACTERS, viewModel::openCharacters, { Icon(Icons.Default.Person, null) }, label = { Text("角色") })
-        NavigationBarItem(selected == Screen.LIBRARY, viewModel::openLibrary, { Icon(Icons.Default.Storage, null) }, label = { Text("資料庫") })
-        NavigationBarItem(selected == Screen.SETTINGS, viewModel::openSettings, { Icon(Icons.Default.Settings, null) }, label = { Text("設定") })
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(52.dp),
+        shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CompactBottomItem("對話", Icons.Default.Chat, selected == Screen.CONVERSATIONS, viewModel::openConversations)
+            CompactBottomItem("角色", Icons.Default.Person, selected == Screen.CHARACTERS, viewModel::openCharacters)
+            CompactBottomItem("資料庫", Icons.Default.Storage, selected == Screen.LIBRARY, viewModel::openLibrary)
+            CompactBottomItem("設定", Icons.Default.Settings, selected == Screen.SETTINGS, viewModel::openSettings)
+        }
+    }
+}
+
+@Composable
+private fun RowScope.CompactBottomItem(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxSize()
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.height(2.dp))
+        Text(label, color = color, fontSize = 11.sp, maxLines = 1)
     }
 }
 
