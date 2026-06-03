@@ -1,6 +1,23 @@
 # 聽雪居
 
-聽雪居是一個自用 Android 12+ 原生 AI 聊天 App 原型。專案目前只支援 Android，不處理 iOS、Google Play 上架、帳號系統或雲端同步。
+聽雪居是一個自用 Android 12+ 原生 AI 聊天 App。專案目前只支援 Android，不處理 iOS、Google Play 上架、帳號系統或雲端同步。
+
+## 最新下載
+
+目前最新版 debug APK：
+
+[下載 TingXueJu-debug.apk](apk/TingXueJu-debug.apk)
+
+歷史版本 APK：
+
+- [v1.1](apk/TingXueJu-v1.1-debug.apk)
+- [v1.0](apk/TingXueJu-v1.0-debug.apk)
+
+更新公告：
+
+- [CHANGELOG.md](CHANGELOG.md)
+- [v1.1 更新公告](releases/v1.1.md)
+- [v1.0 更新公告](releases/v1.0.md)
 
 ## 功能
 
@@ -13,12 +30,6 @@
 - API Key 使用 Android Keystore 保存，並停用 Android 自動備份。
 
 ## 建置
-
-直接下載目前的 debug APK：
-
-```text
-apk/TingXueJu-debug.apk
-```
 
 Debug APK 位置：
 
@@ -41,6 +52,7 @@ app/build/outputs/apk/debug/app-debug.apk
 ## 注意
 
 - Debug APK 適合自用與測試，不適合作為正式發布版本。
-- GitHub 內的 `apk/TingXueJu-debug.apk` 會放目前最新 debug APK，方便直接下載安裝。
+- GitHub 內的 `apk/TingXueJu-debug.apk` 會放目前最新 debug APK。
+- `apk/TingXueJu-vX.X-debug.apk` 會保留每一版 APK。
 - 本機資料解除安裝後會刪除。
 - 自訂 HTTP 端點可使用，但 API Key 與聊天內容可能外洩，建議使用 HTTPS。
