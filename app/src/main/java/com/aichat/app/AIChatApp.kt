@@ -452,7 +452,14 @@ private fun ChatScreen(viewModel: MainViewModel) {
     ) { padding ->
         if (messages.isEmpty()) EmptyState("開始聊天", "輸入訊息，或從角色頁建立帶有開場白的對話。", Modifier.padding(padding))
         else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(messages, key = { it.id }) { message -> MessageBubble(message, contextMap[message.id].orEmpty(), message.role == "assistant" && message.id == messages.lastOrNull()?.id, viewModel::retryLastResponse) }
+            items(messages, key = { it.id }) { message ->
+                MessageBubble(
+                    message = message,
+                    worldHits = contextMap[message.id].orEmpty(),
+                    onEdit = viewModel::editMessage,
+                    onResend = viewModel::resendFromMessage,
+                )
+            }
         }
     }
 }
@@ -466,9 +473,16 @@ private fun MessageComposer(input: String, streaming: Boolean, onInput: (String)
 }
 
 @Composable
-private fun MessageBubble(message: MessageEntity, worldHits: List<String>, canRetry: Boolean, onRetry: () -> Unit) {
+private fun MessageBubble(
+    message: MessageEntity,
+    worldHits: List<String>,
+    onEdit: (String, String) -> Unit,
+    onResend: (String) -> Unit,
+) {
     val clipboard = LocalClipboardManager.current
     var expanded by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    var editText by remember(message.id, message.content) { mutableStateOf(message.content) }
     val user = message.role == "user"
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         Card(Modifier.fillMaxWidth(if (user) .86f else .96f), colors = CardDefaults.cardColors(containerColor = if (user) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)) {
@@ -480,10 +494,34 @@ private fun MessageBubble(message: MessageEntity, worldHits: List<String>, canRe
                 }
                 if (message.content.isNotBlank()) Row {
                     IconButton(onClick = { clipboard.setText(AnnotatedString(message.content)) }) { Icon(Icons.Default.ContentCopy, "複製", Modifier.size(18.dp)) }
-                    if (canRetry) IconButton(onClick = onRetry) { Icon(Icons.Default.Refresh, "重試", Modifier.size(18.dp)) }
+                    IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, "編輯", Modifier.size(18.dp)) }
+                    IconButton(onClick = { onResend(message.id) }) { Icon(Icons.Default.Refresh, "重新發送", Modifier.size(18.dp)) }
                 }
             }
         }
+    }
+    if (editing) {
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text(if (user) "編輯自己的訊息" else "編輯 AI 訊息") },
+            text = {
+                OutlinedTextField(
+                    value = editText,
+                    onValueChange = { editText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 5,
+                    maxLines = 12,
+                    label = { Text("訊息內容") },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onEdit(message.id, editText)
+                    editing = false
+                }) { Text("儲存") }
+            },
+            dismissButton = { TextButton(onClick = { editing = false }) { Text("取消") } },
+        )
     }
 }
 

@@ -28,6 +28,9 @@ interface ChatDao {
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC")
     suspend fun getMessages(conversationId: String): List<MessageEntity>
 
+    @Query("SELECT * FROM messages WHERE id = :id")
+    suspend fun getMessage(id: String): MessageEntity?
+
     @Query("SELECT * FROM generation_contexts WHERE messageId IN (SELECT id FROM messages WHERE conversationId = :conversationId)")
     fun observeGenerationContexts(conversationId: String): Flow<List<GenerationContextEntity>>
 
@@ -43,8 +46,17 @@ interface ChatDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMessage(message: MessageEntity)
 
+    @Update
+    suspend fun updateMessage(message: MessageEntity)
+
     @Query("DELETE FROM messages WHERE id = :id")
     suspend fun deleteMessage(id: String)
+
+    @Query("DELETE FROM messages WHERE conversationId = :conversationId AND createdAt > :createdAt")
+    suspend fun deleteMessagesAfter(conversationId: String, createdAt: Long)
+
+    @Query("DELETE FROM messages WHERE conversationId = :conversationId AND createdAt >= :createdAt")
+    suspend fun deleteMessagesAtOrAfter(conversationId: String, createdAt: Long)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertGenerationContext(context: GenerationContextEntity)

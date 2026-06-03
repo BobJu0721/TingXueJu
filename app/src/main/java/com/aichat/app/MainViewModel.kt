@@ -38,7 +38,7 @@ enum class Screen {
     WORLD_SETS, WORLD_SET_EDIT, NEW_CHAT, CHAT_INFO,
 }
 enum class ErrorKind { GENERAL, CONTEXT_LENGTH }
-enum class PendingAction { SEND, RETRY }
+enum class PendingAction { SEND, RETRY, RESEND_FROM_MESSAGE }
 enum class ImportTarget { CHARACTER, PERSONA, WORLD_SET }
 
 data class UiError(
@@ -120,6 +120,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val newChatGreeting = _newChatGreeting.asStateFlow()
 
     private var pendingAction: PendingAction? = null
+    private var pendingResendMessageId: String? = null
     private var streamJob: Job? = null
 
     fun setInput(value: String) { _input.value = value }
@@ -427,6 +428,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_selectedConversationId.value == null || _isStreaming.value) return
         runWithUnsafeHttpConfirmation(PendingAction.RETRY)
     }
+    fun editMessage(messageId: String, content: String) {
+        val trimmed = content.trim()
+        if (trimmed.isBlank() || _isStreaming.value) return
+        viewModelScope.launch {
+            val message = dao.getMessage(messageId) ?: return@launch
+            val conversation = dao.getConversation(message.conversationId) ?: return@launch
+            dao.updateMessage(message.copy(content = trimmed))
+            dao.updateConversation(
+                conversation.copy(
+                    updatedAt = System.currentTimeMillis(),
+                    summary = if (message.createdAt <= conversation.summaryThroughAt) "" else conversation.summary,
+                    summaryThroughAt = if (message.createdAt <= conversation.summaryThroughAt) 0 else conversation.summaryThroughAt,
+                ),
+            )
+            _notice.value = "訊息已更新"
+        }
+    }
+    fun resendFromMessage(messageId: String) {
+        if (_selectedConversationId.value == null || _isStreaming.value) return
+        pendingResendMessageId = messageId
+        runWithUnsafeHttpConfirmation(PendingAction.RESEND_FROM_MESSAGE)
+    }
     fun confirmUnsafeHttp() {
         _showUnsafeHttpWarning.value = false
         val action = pendingAction
@@ -434,15 +457,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         when (action) {
             PendingAction.SEND -> startNewMessage()
             PendingAction.RETRY -> startRetry()
+            PendingAction.RESEND_FROM_MESSAGE -> startResendFromMessage(pendingResendMessageId)
             null -> Unit
         }
+        pendingResendMessageId = null
     }
-    fun dismissUnsafeHttp() { pendingAction = null; _showUnsafeHttpWarning.value = false }
+    fun dismissUnsafeHttp() { pendingAction = null; pendingResendMessageId = null; _showUnsafeHttpWarning.value = false }
     fun stopStreaming() { api.cancelActive(); streamJob?.cancel(); _isStreaming.value = false; _notice.value = "已停止生成" }
 
     private fun runWithUnsafeHttpConfirmation(action: PendingAction) {
         if (settings.value.usesUnsafeHttp) { pendingAction = action; _showUnsafeHttpWarning.value = true }
-        else if (action == PendingAction.SEND) startNewMessage() else startRetry()
+        else when (action) {
+            PendingAction.SEND -> startNewMessage()
+            PendingAction.RETRY -> startRetry()
+            PendingAction.RESEND_FROM_MESSAGE -> {
+                startResendFromMessage(pendingResendMessageId)
+                pendingResendMessageId = null
+            }
+        }
     }
 
     private fun startNewMessage() {
@@ -468,6 +500,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         streamJob = viewModelScope.launch {
             dao.getMessages(conversationId).lastOrNull()?.takeIf { it.role == "assistant" }?.let { dao.deleteMessage(it.id) }
             streamConversation(conversationId)
+        }
+    }
+
+    private fun startResendFromMessage(messageId: String?) {
+        if (messageId == null) return
+        streamJob = viewModelScope.launch {
+            val message = dao.getMessage(messageId) ?: return@launch
+            val conversation = dao.getConversation(message.conversationId) ?: return@launch
+            if (message.role == "assistant") {
+                dao.deleteMessagesAtOrAfter(message.conversationId, message.createdAt)
+            } else {
+                dao.deleteMessagesAfter(message.conversationId, message.createdAt)
+            }
+            dao.updateConversation(
+                conversation.copy(
+                    updatedAt = System.currentTimeMillis(),
+                    summary = if (message.createdAt <= conversation.summaryThroughAt) "" else conversation.summary,
+                    summaryThroughAt = if (message.createdAt <= conversation.summaryThroughAt) 0 else conversation.summaryThroughAt,
+                ),
+            )
+            _notice.value = "已從這則訊息重新發送"
+            streamConversation(message.conversationId)
         }
     }
 
