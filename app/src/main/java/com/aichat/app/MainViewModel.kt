@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aichat.app.data.AppDatabase
+import com.aichat.app.data.AppLanguage
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.ConversationEntity
 import com.aichat.app.data.ConversationWorldSetEntity
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 import java.io.IOException
 import java.util.UUID
 
@@ -123,6 +125,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var pendingResendMessageId: String? = null
     private var streamJob: Job? = null
 
+    private fun text(traditional: String, simplified: String): String =
+        settings.value.language.pick(traditional, simplified)
+
     fun setInput(value: String) { _input.value = value }
     fun openConversations() { _screen.value = Screen.CONVERSATIONS }
     fun openCharacters() { _screen.value = Screen.CHARACTERS }
@@ -133,6 +138,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openModels() { _screen.value = Screen.MODELS; refreshModels() }
     fun clearError() { _error.value = null }
     fun clearNotice() { _notice.value = null }
+    private fun showNotice(message: String) { /* Notices are intentionally disabled. */ }
 
     fun selectConversation(id: String) {
         _selectedConversationId.value = id
@@ -171,7 +177,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val character = _newChatCharacter.value
             val conversation = ConversationEntity(
                 id = UUID.randomUUID().toString(),
-                title = character?.name?.ifBlank { "新對話" } ?: "新對話",
+                title = character?.name?.ifBlank { text("新對話", "新对话") } ?: text("新對話", "新对话"),
                 createdAt = now,
                 updatedAt = now,
                 characterId = character?.id,
@@ -200,7 +206,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val updated = conversation.copy(personaId = id)
             dao.updateConversation(updated)
             _selectedConversation.value = updated
-            _notice.value = "Persona 已更新"
+            showNotice(text("Persona 已更新", "Persona 已更新"))
         }
     }
 
@@ -219,7 +225,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val updated = conversation.copy(summary = summary.trim())
             dao.updateConversation(updated)
             _selectedConversation.value = updated
-            _notice.value = "摘要已儲存"
+            showNotice(text("摘要已儲存", "摘要已保存"))
+        }
+    }
+
+    fun setConversationBackground(uri: Uri) {
+        val conversation = _selectedConversation.value ?: return
+        viewModelScope.launch {
+            runCatching {
+                val directory = File(getApplication<Application>().filesDir, "chat-backgrounds")
+                directory.mkdirs()
+                val target = File(directory, "${conversation.id}-${UUID.randomUUID()}.img")
+                getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                } ?: throw IOException(text("無法讀取背景圖片。", "无法读取背景图片。"))
+
+                conversation.backgroundImagePath.takeIf(String::isNotBlank)?.let {
+                    runCatching { File(it).delete() }
+                }
+                val updated = conversation.copy(backgroundImagePath = target.absolutePath)
+                dao.updateConversation(updated)
+                _selectedConversation.value = updated
+            }
+                .onSuccess { showNotice(text("背景圖已更新", "背景图已更新")) }
+                .onFailure { _error.value = mapError(it, text("背景圖設定失敗", "背景图设置失败")) }
+        }
+    }
+
+    fun clearConversationBackground() {
+        val conversation = _selectedConversation.value ?: return
+        viewModelScope.launch {
+            conversation.backgroundImagePath.takeIf(String::isNotBlank)?.let {
+                runCatching { File(it).delete() }
+            }
+            val updated = conversation.copy(backgroundImagePath = "")
+            dao.updateConversation(updated)
+            _selectedConversation.value = updated
+            showNotice(text("背景圖已移除", "背景图已移除"))
         }
     }
 
@@ -240,7 +282,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveProfile(draft: ProfileDraft) {
         if (draft.name.isBlank()) {
-            _error.value = UiError("缺少名稱", "請替這份設定填寫名稱。", "名稱會顯示在列表與聊天頁。")
+            _error.value = UiError(
+                text("缺少名稱", "缺少名称"),
+                text("請替這份設定填寫名稱。", "请替这份设定填写名称。"),
+                text("名稱會顯示在列表與聊天頁。", "名称会显示在列表与聊天页。"),
+            )
             return
         }
         viewModelScope.launch {
@@ -262,7 +308,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     updatedAt = now,
                 ),
             )
-            _notice.value = "設定已儲存"
+            showNotice(text("設定已儲存", "设置已保存"))
             _screen.value = if (draft.type == ProfileType.CHARACTER) Screen.CHARACTERS else Screen.LIBRARY
         }
     }
@@ -293,7 +339,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             dao.upsertWorldSet(worldSet)
             _editingWorldSet.value = worldSet
-            _notice.value = "世界設定集已儲存"
+            showNotice(text("世界設定集已儲存", "世界设定集已保存"))
         }
     }
 
@@ -329,12 +375,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (directDraft != null) {
                         _editingProfile.value = directDraft
                         _screen.value = Screen.PROFILE_EDIT
-                        _notice.value = "已讀取 JSON，請確認內容"
+                        showNotice(text("已讀取 JSON，請確認內容", "已读取 JSON，请确认内容"))
                     } else {
                         _pendingImport.value = PendingDocumentImport(target, document)
                     }
                 }
-                .onFailure { _error.value = mapError(it, "無法匯入文件") }
+                .onFailure { _error.value = mapError(it, text("無法匯入文件", "无法导入文件")) }
         }
     }
 
@@ -346,7 +392,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val apiKey = secretStore.get(current.provider)
         if (apiKey.isBlank() || current.resolvedBaseUrl.isBlank()) {
             _pendingImport.value = null
-            _error.value = UiError("缺少 API 設定", "AI 整理文件需要目前供應商的 API Key 與網址。", "請先前往設定頁完成 API 設定。")
+            _error.value = UiError(
+                text("缺少 API 設定", "缺少 API 设置"),
+                text("AI 整理文件需要目前供應商的 API Key 與網址。", "AI 整理文件需要当前供应商的 API Key 与网址。"),
+                text("請先前往設定頁完成 API 設定。", "请先前往设置页完成 API 设置。"),
+            )
             return
         }
         _pendingImport.value = null
@@ -363,25 +413,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         saveImportedWorldSet(draft)
                     }
                 }
-            }.onFailure { _error.value = mapError(it, "AI 整理失敗") }
+            }.onFailure { _error.value = mapError(it, text("AI 整理失敗", "AI 整理失败")) }
             _isImporting.value = false
         }
     }
 
     private suspend fun organizeProfile(text: String, type: ProfileType, settings: AppSettings, key: String): ProfileDraft {
-        val notes = organizeChunks(text, settings, key, "整理其中與單一身份有關的資訊，保留重要細節。")
-        val label = if (type == ProfileType.CHARACTER) "AI 要扮演的角色" else "使用者身份 Persona"
+        val notes = organizeChunks(text, settings, key, settings.language.organizeProfileInstruction())
+        val label = if (type == ProfileType.CHARACTER) {
+            settings.language.pick("AI 要扮演的角色", "AI 要扮演的角色")
+        } else {
+            settings.language.pick("使用者身份 Persona", "用户身份 Persona")
+        }
         val reply = api.completeChat(settings, key, listOf(
-            ApiChatMessage("system", "將文件整理成一份$label。只回傳 JSON，不要 markdown。欄位固定為 name, summary, personality, background, exampleDialogue, greeting, alternateGreetings, extraInstructions。alternateGreetings 必須是字串陣列。"),
+            ApiChatMessage("system", settings.language.profileJsonInstruction(label)),
             ApiChatMessage("user", notes),
         ))
         return parseAiProfileDraft(reply, type)
     }
 
     private suspend fun organizeWorldSet(text: String, settings: AppSettings, key: String): WorldSetDraft {
-        val notes = organizeChunks(text, settings, key, "整理其中的世界觀、地點、人物關係與規則，保留可用細節。")
+        val notes = organizeChunks(text, settings, key, settings.language.organizeWorldInstruction())
         val reply = api.completeChat(settings, key, listOf(
-            ApiChatMessage("system", "將文件拆成可用關鍵詞觸發的世界設定條目。只回傳 JSON，不要 markdown。根物件欄位為 name 與 entries；每個 entry 欄位固定為 title, keywords, content, alwaysInclude。keywords 必須是字串陣列；只有每次都必須知道的核心規則才設 alwaysInclude=true。"),
+            ApiChatMessage("system", settings.language.worldJsonInstruction()),
             ApiChatMessage("user", notes),
         ))
         return parseAiWorldSetDraft(reply)
@@ -392,7 +446,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (chunks.size == 1) return text
         return chunks.mapIndexed { index, chunk ->
             api.completeChat(settings, key, listOf(
-                ApiChatMessage("system", "$instruction 這是第 ${index + 1}/${chunks.size} 段。請輸出精簡但完整的純文字筆記。"),
+                ApiChatMessage("system", settings.language.chunkInstruction(instruction, index, chunks.size)),
                 ApiChatMessage("user", chunk),
             ))
         }.joinToString("\n\n")
@@ -400,7 +454,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun saveImportedWorldSet(draft: WorldSetDraft) {
         val now = System.currentTimeMillis()
-        val worldSet = WorldSetEntity(UUID.randomUUID().toString(), draft.name.ifBlank { "匯入的世界設定" }, 10, now, now)
+        val worldSet = WorldSetEntity(UUID.randomUUID().toString(), draft.name.ifBlank { text("匯入的世界設定", "导入的世界设定") }, 10, now, now)
         dao.upsertWorldSet(worldSet)
         draft.entries.forEachIndexed { index, entry ->
             dao.upsertWorldEntry(
@@ -417,7 +471,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         _editingWorldSet.value = worldSet
         _screen.value = Screen.WORLD_SET_EDIT
-        _notice.value = "AI 已整理世界設定，請確認內容"
+        showNotice(text("AI 已整理世界設定，請確認內容", "AI 已整理世界设定，请确认内容"))
     }
 
     fun send() {
@@ -442,7 +496,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     summaryThroughAt = if (message.createdAt <= conversation.summaryThroughAt) 0 else conversation.summaryThroughAt,
                 ),
             )
-            _notice.value = "訊息已更新"
+            showNotice(text("訊息已更新", "消息已更新"))
         }
     }
     fun resendFromMessage(messageId: String) {
@@ -463,7 +517,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         pendingResendMessageId = null
     }
     fun dismissUnsafeHttp() { pendingAction = null; pendingResendMessageId = null; _showUnsafeHttpWarning.value = false }
-    fun stopStreaming() { api.cancelActive(); streamJob?.cancel(); _isStreaming.value = false; _notice.value = "已停止生成" }
+    fun stopStreaming() { api.cancelActive(); streamJob?.cancel(); _isStreaming.value = false; showNotice(text("已停止生成", "已停止生成")) }
 
     private fun runWithUnsafeHttpConfirmation(action: PendingAction) {
         if (settings.value.usesUnsafeHttp) { pendingAction = action; _showUnsafeHttpWarning.value = true }
@@ -485,7 +539,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val conversationId = _selectedConversationId.value ?: run {
                 beginNewChat()
                 _input.value = content
-                _notice.value = "請先確認 Persona 與世界設定"
+                showNotice(text("請先確認 Persona 與世界設定", "请先确认 Persona 与世界设定"))
                 return@launch
             }
             val now = System.currentTimeMillis()
@@ -520,7 +574,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     summaryThroughAt = if (message.createdAt <= conversation.summaryThroughAt) 0 else conversation.summaryThroughAt,
                 ),
             )
-            _notice.value = "已從這則訊息重新發送"
+            showNotice(text("已從這則訊息重新發送", "已从这则消息重新发送"))
             streamConversation(message.conversationId)
         }
     }
@@ -529,7 +583,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val current = settings.value
         val key = secretStore.get(current.provider)
         if (key.isBlank() || current.resolvedBaseUrl.isBlank()) {
-            _error.value = UiError("缺少 API 設定", "請設定 ${current.provider.label} 的 API Key 與網址。", "前往設定頁填寫後再試一次。")
+            _error.value = UiError(
+                current.language.pick("缺少 API 設定", "缺少 API 设置"),
+                current.language.pick("請設定 ${current.provider.label} 的 API Key 與網址。", "请设置 ${current.provider.label} 的 API Key 与网址。"),
+                current.language.pick("前往設定頁填寫後再試一次。", "前往设置页填写后再试一次。"),
+            )
             return
         }
         val conversation = dao.getConversation(conversationId) ?: return
@@ -537,7 +595,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val worldIds = dao.getConversationWorldSetIds(conversationId)
         val worldSets = if (worldIds.isEmpty()) emptyList() else dao.getWorldSets(worldIds)
         val entries = if (worldIds.isEmpty()) emptyList() else dao.getWorldEntries(worldIds)
-        val prompt = composePrompt(conversation, history, dao.getProfile(conversation.characterId), dao.getProfile(conversation.personaId), worldSets, entries)
+        val prompt = composePrompt(conversation, history, dao.getProfile(conversation.characterId), dao.getProfile(conversation.personaId), worldSets, entries, current.language)
         val assistant = MessageEntity(UUID.randomUUID().toString(), conversationId, "assistant", "", System.currentTimeMillis() + 1)
         dao.upsertMessage(assistant)
         _isStreaming.value = true
@@ -547,7 +605,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 content += token
                 dao.upsertMessage(assistant.copy(content = content))
             }
-            if (content.isBlank()) throw IOException("API 沒有回傳文字內容。")
+            if (content.isBlank()) throw IOException(current.language.pick("API 沒有回傳文字內容。", "API 没有返回文字内容。"))
             dao.upsertGenerationContext(GenerationContextEntity(assistant.id, toJsonStrings(prompt.activatedEntries.map { it.title })))
         } catch (_: CancellationException) {
             if (content.isBlank()) dao.deleteMessage(assistant.id)
@@ -556,12 +614,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (allowAutoSummary && error is ApiException && error.isContextLengthError) {
                 runCatching { summarizeConversation(conversationId, current, key) }
                     .onSuccess {
-                        _notice.value = "已摘要較早對話，正在重試"
+                        showNotice(current.language.pick("已摘要較早對話，正在重試", "已摘要较早对话，正在重试"))
                         streamConversation(conversationId, allowAutoSummary = false)
                     }
-                    .onFailure { _error.value = mapError(it, "自動摘要失敗") }
+                    .onFailure { _error.value = mapError(it, current.language.pick("自動摘要失敗", "自动摘要失败")) }
             } else {
-                _error.value = mapError(error, "生成失敗")
+                _error.value = mapError(error, current.language.pick("生成失敗", "生成失败"))
             }
         } finally {
             _isStreaming.value = false
@@ -572,19 +630,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val conversation = dao.getConversation(conversationId) ?: return
         val history = dao.getMessages(conversationId).filter { it.content.isNotBlank() && it.createdAt > conversation.summaryThroughAt }
         val older = history.dropLast(8)
-        if (older.isEmpty()) throw IOException("目前沒有足夠的較早訊息可以摘要。")
+        if (older.isEmpty()) throw IOException(settings.language.pick("目前沒有足夠的較早訊息可以摘要。", "目前没有足够的较早消息可以摘要。"))
         val text = buildString {
             if (conversation.summary.isNotBlank()) appendLine("既有摘要：\n${conversation.summary}\n")
             older.forEach { appendLine("${it.role}: ${it.content}") }
         }
         val summaries = text.chunked(IMPORT_CHUNK_SIZE).map { chunk ->
             api.completeChat(settings, key, listOf(
-                ApiChatMessage("system", "將角色扮演對話濃縮成精準的繁體中文前情摘要。保留人物、關係、承諾、事件、位置與尚未解決的事項。只輸出摘要。"),
+                ApiChatMessage("system", settings.language.summarizeSystemInstruction()),
                 ApiChatMessage("user", chunk),
             ))
         }
         val summary = if (summaries.size == 1) summaries.single() else api.completeChat(settings, key, listOf(
-            ApiChatMessage("system", "合併以下分段摘要，移除重複內容但保留關鍵細節。只輸出合併後摘要。"),
+            ApiChatMessage("system", settings.language.mergeSummaryInstruction()),
             ApiChatMessage("user", summaries.joinToString("\n\n")),
         ))
         val updated = conversation.copy(summary = summary.trim(), summaryThroughAt = older.maxOf { it.createdAt })
@@ -601,16 +659,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (history.size <= 2) return@launch
             val kept = history.drop(history.size / 2).first()
             dao.updateConversation(conversation.copy(contextStartAt = kept.createdAt))
-            _notice.value = "已裁切較早訊息"
+            showNotice(text("已裁切較早訊息", "已裁切较早消息"))
             streamConversation(id, allowAutoSummary = false)
         }
     }
 
-    fun saveSettings(provider: Provider, baseUrl: String, model: String, apiKey: String, darkTheme: Boolean) {
+    fun saveSettings(provider: Provider, baseUrl: String, model: String, apiKey: String, darkTheme: Boolean, language: AppLanguage) {
         viewModelScope.launch {
-            settingsRepository.save(AppSettings(provider, baseUrl.trim(), model.ifBlank { provider.defaultModel }.trim(), darkTheme))
+            settingsRepository.save(AppSettings(provider, baseUrl.trim(), model.ifBlank { provider.defaultModel }.trim(), darkTheme, language))
             if (apiKey.isNotBlank()) secretStore.put(provider, apiKey.trim())
-            _notice.value = "設定已儲存"
+            showNotice(language.pick("設定已儲存", "设置已保存"))
             _screen.value = Screen.CONVERSATIONS
         }
     }
@@ -620,31 +678,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val current = settings.value
             val key = secretStore.get(current.provider)
-            if (key.isBlank()) { _error.value = UiError("缺少 API Key", "請先填入 API Key。", "前往設定頁完成設定。"); return@launch }
+            if (key.isBlank()) {
+                _error.value = UiError(
+                    current.language.pick("缺少 API Key", "缺少 API Key"),
+                    current.language.pick("請先填入 API Key。", "请先填入 API Key。"),
+                    current.language.pick("前往設定頁完成設定。", "前往设置页完成设置。"),
+                )
+                return@launch
+            }
             _isLoadingModels.value = true
             runCatching { api.listModels(current, key) }
                 .onSuccess { _models.value = it }
-                .onFailure { _error.value = mapError(it, "無法載入模型") }
+                .onFailure { _error.value = mapError(it, current.language.pick("無法載入模型", "无法载入模型")) }
             _isLoadingModels.value = false
         }
     }
     fun chooseModel(model: String) {
         viewModelScope.launch {
             settingsRepository.save(settings.value.copy(model = model))
-            _notice.value = "已選擇 $model"
+            showNotice(settings.value.language.pick("已選擇 $model", "已选择 $model"))
             _screen.value = Screen.CHAT
         }
     }
 
     private fun mapError(error: Throwable, title: String): UiError = when (error) {
         is ApiException -> when {
-            error.isContextLengthError -> UiError("上下文過長", "API 回報 ${error.statusCode}：${error.message}", "可裁切舊訊息並重試，或建立新對話。", ErrorKind.CONTEXT_LENGTH)
-            error.statusCode == 401 || error.statusCode == 403 -> UiError("API Key 無效", "API 回報 ${error.statusCode}：${error.message}", "請檢查 Key、模型與供應商設定。")
-            error.statusCode == 429 -> UiError("額度不足或請求過快", "API 回報 429：${error.message}", "請稍後再試，或切換模型與供應商。")
-            else -> UiError(title, "API 回報 ${error.statusCode}：${error.message}", "請檢查模型與供應商設定。")
+            error.isContextLengthError -> UiError(text("上下文過長", "上下文过长"), text("API 回報 ${error.statusCode}：${error.message}", "API 返回 ${error.statusCode}：${error.message}"), text("可裁切舊訊息並重試，或建立新對話。", "可裁切旧消息并重试，或建立新对话。"), ErrorKind.CONTEXT_LENGTH)
+            error.statusCode == 401 || error.statusCode == 403 -> UiError(text("API Key 無效", "API Key 无效"), text("API 回報 ${error.statusCode}：${error.message}", "API 返回 ${error.statusCode}：${error.message}"), text("請檢查 Key、模型與供應商設定。", "请检查 Key、模型与供应商设置。"))
+            error.statusCode == 429 -> UiError(text("額度不足或請求過快", "额度不足或请求过快"), text("API 回報 429：${error.message}", "API 返回 429：${error.message}"), text("請稍後再試，或切換模型與供應商。", "请稍后再试，或切换模型与供应商。"))
+            else -> UiError(title, text("API 回報 ${error.statusCode}：${error.message}", "API 返回 ${error.statusCode}：${error.message}"), text("請檢查模型與供應商設定。", "请检查模型与供应商设置。"))
         }
-        is IOException -> UiError(title, error.message ?: "網路連線失敗。", "請檢查網路與 API 設定。")
-        else -> UiError(title, error.message ?: "發生未知錯誤。", "請稍後再試。")
+        is IOException -> UiError(title, error.message ?: text("網路連線失敗。", "网络连接失败。"), text("請檢查網路與 API 設定。", "请检查网络与 API 设置。"))
+        else -> UiError(title, error.message ?: text("發生未知錯誤。", "发生未知错误。"), text("請稍後再試。", "请稍后再试。"))
     }
 }
 

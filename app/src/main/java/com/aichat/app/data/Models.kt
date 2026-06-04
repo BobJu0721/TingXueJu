@@ -20,11 +20,22 @@ enum class Provider(
     }
 }
 
+enum class AppLanguage(val label: String) {
+    TRADITIONAL_CHINESE("繁體中文"),
+    SIMPLIFIED_CHINESE("简体中文");
+
+    companion object {
+        fun fromId(id: String?): AppLanguage =
+            entries.firstOrNull { it.name == id } ?: TRADITIONAL_CHINESE
+    }
+}
+
 data class AppSettings(
     val provider: Provider = Provider.OPENROUTER,
     val customBaseUrl: String = "",
     val model: String = Provider.OPENROUTER.defaultModel,
     val darkTheme: Boolean = false,
+    val language: AppLanguage = AppLanguage.TRADITIONAL_CHINESE,
 ) {
     val resolvedBaseUrl: String
         get() = (if (provider == Provider.CUSTOM) customBaseUrl else provider.baseUrl).trimEnd('/')
@@ -135,6 +146,7 @@ data class ConversationEntity(
     val personaId: String? = null,
     val summary: String = "",
     val summaryThroughAt: Long = 0,
+    val backgroundImagePath: String = "",
 )
 
 @Entity(

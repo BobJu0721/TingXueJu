@@ -1,6 +1,7 @@
 package com.aichat.app
 
 import com.aichat.app.data.ConversationEntity
+import com.aichat.app.data.AppLanguage
 import com.aichat.app.data.MessageEntity
 import com.aichat.app.data.ProfileEntity
 import com.aichat.app.data.WorldEntryEntity
@@ -53,6 +54,7 @@ fun composePrompt(
     persona: ProfileEntity?,
     worldSets: List<WorldSetEntity>,
     worldEntries: List<WorldEntryEntity>,
+    language: AppLanguage = AppLanguage.TRADITIONAL_CHINESE,
 ): PromptResult {
     val visibleHistory = history.filter {
         it.content.isNotBlank() &&
@@ -60,13 +62,14 @@ fun composePrompt(
             it.createdAt > conversation.summaryThroughAt
     }
     val activatedEntries = activateWorldEntries(worldEntries, worldSets, visibleHistory)
+    val labels = language.promptLabels()
     val systemText = buildString {
-        appendLine("請自然地延續對話。以下資料是本次對話可使用的背景設定。")
-        appendProfile("AI 扮演的角色", character)
-        appendProfile("使用者身份 Persona", persona)
+        appendLine(labels.continueConversation)
+        appendProfile(labels.aiCharacter, character, labels)
+        appendProfile(labels.persona, persona, labels)
         if (activatedEntries.isNotEmpty()) {
             appendLine()
-            appendLine("## 本次命中的世界設定")
+            appendLine("## ${labels.worldHits}")
             activatedEntries.forEach { entry ->
                 appendLine("### ${entry.title}")
                 appendLine(entry.content)
@@ -74,7 +77,7 @@ fun composePrompt(
         }
         if (conversation.summary.isNotBlank()) {
             appendLine()
-            appendLine("## 較早對話摘要")
+            appendLine("## ${labels.olderSummary}")
             appendLine(conversation.summary)
         }
     }.trim()
@@ -87,16 +90,16 @@ fun composePrompt(
     )
 }
 
-private fun StringBuilder.appendProfile(title: String, profile: ProfileEntity?) {
+private fun StringBuilder.appendProfile(title: String, profile: ProfileEntity?, labels: PromptLabels) {
     if (profile == null) return
     appendLine()
     appendLine("## $title：${profile.name}")
-    appendField("簡介", profile.summary)
-    appendField("個性", profile.personality)
-    appendField("背景", profile.background)
-    appendField("範例對話", profile.exampleDialogue)
-    appendField("開場白參考", profile.greeting)
-    appendField("額外指示", profile.extraInstructions)
+    appendField(labels.summary, profile.summary)
+    appendField(labels.personality, profile.personality)
+    appendField(labels.background, profile.background)
+    appendField(labels.exampleDialogue, profile.exampleDialogue)
+    appendField(labels.greetingReference, profile.greeting)
+    appendField(labels.extraInstructions, profile.extraInstructions)
 }
 
 private fun StringBuilder.appendField(label: String, content: String) {

@@ -16,6 +16,7 @@ class SettingsRepository(private val context: Context) {
         val customBaseUrl = stringPreferencesKey("custom_base_url")
         val model = stringPreferencesKey("model")
         val darkTheme = booleanPreferencesKey("dark_theme")
+        val language = stringPreferencesKey("language")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { preferences ->
@@ -25,6 +26,7 @@ class SettingsRepository(private val context: Context) {
             customBaseUrl = preferences[Keys.customBaseUrl].orEmpty(),
             model = preferences[Keys.model] ?: provider.defaultModel,
             darkTheme = preferences[Keys.darkTheme] ?: false,
+            language = AppLanguage.fromId(preferences[Keys.language]),
         )
     }
 
@@ -34,6 +36,7 @@ class SettingsRepository(private val context: Context) {
             preferences[Keys.customBaseUrl] = settings.customBaseUrl
             preferences[Keys.model] = settings.model
             preferences[Keys.darkTheme] = settings.darkTheme
+            preferences[Keys.language] = settings.language.name
         }
     }
 }

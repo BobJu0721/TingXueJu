@@ -1,7 +1,10 @@
 package com.aichat.app
 
+import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,7 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -57,13 +62,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -71,9 +73,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -86,6 +92,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aichat.app.data.AppLanguage
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.ConversationEntity
 import com.aichat.app.data.MessageEntity
@@ -111,58 +118,61 @@ fun AIChatApp(viewModel: MainViewModel) {
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val pendingImport by viewModel.pendingImport.collectAsStateWithLifecycle()
     val isImporting by viewModel.isImporting.collectAsStateWithLifecycle()
-    val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(notice) { notice?.let { snackbar.showSnackbar(it); viewModel.clearNotice() } }
+    val language = settings.language
+    LaunchedEffect(notice) { if (notice != null) viewModel.clearNotice() }
 
     MaterialTheme(colorScheme = if (settings.darkTheme) darkColorScheme() else lightColorScheme()) {
-        Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { outer ->
+        Scaffold { outer ->
             Box(Modifier.padding(outer)) {
                 when (screen) {
-                    Screen.CONVERSATIONS -> ConversationsScreen(viewModel)
-                    Screen.CHARACTERS -> ProfilesScreen(viewModel, ProfileType.CHARACTER)
-                    Screen.LIBRARY -> LibraryScreen(viewModel)
+                    Screen.CONVERSATIONS -> ConversationsScreen(viewModel, language)
+                    Screen.CHARACTERS -> ProfilesScreen(viewModel, ProfileType.CHARACTER, language)
+                    Screen.LIBRARY -> LibraryScreen(viewModel, language)
                     Screen.SETTINGS -> SettingsScreen(viewModel, settings)
-                    Screen.CHAT -> ChatScreen(viewModel)
-                    Screen.MODELS -> ModelsScreen(viewModel, settings.model)
-                    Screen.PROFILE_EDIT -> ProfileEditScreen(viewModel)
-                    Screen.WORLD_SETS -> WorldSetsScreen(viewModel)
-                    Screen.WORLD_SET_EDIT -> WorldSetEditScreen(viewModel)
-                    Screen.NEW_CHAT -> NewChatScreen(viewModel)
-                    Screen.CHAT_INFO -> ChatInfoScreen(viewModel)
+                    Screen.CHAT -> ChatScreen(viewModel, language)
+                    Screen.MODELS -> ModelsScreen(viewModel, settings.model, language)
+                    Screen.PROFILE_EDIT -> ProfileEditScreen(viewModel, language)
+                    Screen.WORLD_SETS -> WorldSetsScreen(viewModel, language)
+                    Screen.WORLD_SET_EDIT -> WorldSetEditScreen(viewModel, language)
+                    Screen.NEW_CHAT -> NewChatScreen(viewModel, language)
+                    Screen.CHAT_INFO -> ChatInfoScreen(viewModel, language)
                 }
-                if (isImporting) LoadingOverlay("AI 正在整理文件...")
+                if (isImporting) LoadingOverlay(language.pick("AI 正在整理文件...", "AI 正在整理文件..."))
             }
         }
         error?.let { current ->
-            ErrorDialog(current, viewModel::clearError, viewModel::openSettings, viewModel::trimOldestContextAndRetry) {
+            ErrorDialog(current, language, viewModel::clearError, viewModel::openSettings, viewModel::trimOldestContextAndRetry) {
                 viewModel.clearError(); viewModel.beginNewChat()
             }
         }
         pendingImport?.let { pending ->
             AlertDialog(
                 onDismissRequest = viewModel::dismissPendingImport,
-                title = { Text("確認傳送文件") },
+                title = { Text(language.pick("確認傳送文件", "确认发送文件")) },
                 text = {
-                    Text("將把「${pending.document.name}」的 ${pending.document.text.length} 個字元傳送給 ${settings.provider.label} / ${settings.model}，預估最多 ${pending.estimatedCalls} 次 API 呼叫。請確認文件不含不希望傳出的私人內容。")
+                    Text(language.pick(
+                        "將把「${pending.document.name}」的 ${pending.document.text.length} 個字元傳送給 ${settings.provider.label} / ${settings.model}，預估最多 ${pending.estimatedCalls} 次 API 呼叫。請確認文件不含不希望傳出的私人內容。",
+                        "会把「${pending.document.name}」的 ${pending.document.text.length} 个字符发送给 ${settings.provider.label} / ${settings.model}，预计最多 ${pending.estimatedCalls} 次 API 调用。请确认文件不含不希望传出的私人内容。",
+                    ))
                 },
-                confirmButton = { TextButton(onClick = viewModel::confirmPendingImport) { Text("同意並整理") } },
-                dismissButton = { TextButton(onClick = viewModel::dismissPendingImport) { Text("取消") } },
+                confirmButton = { TextButton(onClick = viewModel::confirmPendingImport) { Text(language.pick("同意並整理", "同意并整理")) } },
+                dismissButton = { TextButton(onClick = viewModel::dismissPendingImport) { Text(language.pick("取消", "取消")) } },
             )
         }
         if (showUnsafeWarning) {
             AlertDialog(
                 onDismissRequest = viewModel::dismissUnsafeHttp,
-                title = { Text("HTTP 端點警告") },
-                text = { Text("目前端點使用未加密 HTTP。API Key 和聊天內容可能外洩，確定仍要傳送嗎？") },
-                confirmButton = { TextButton(onClick = viewModel::confirmUnsafeHttp) { Text("仍要傳送") } },
-                dismissButton = { TextButton(onClick = viewModel::dismissUnsafeHttp) { Text("取消") } },
+                title = { Text(language.pick("HTTP 端點警告", "HTTP 端点警告")) },
+                text = { Text(language.pick("目前端點使用未加密 HTTP。API Key 和聊天內容可能外洩，確定仍要傳送嗎？", "目前端点使用未加密 HTTP。API Key 和聊天内容可能外泄，确定仍要发送吗？")) },
+                confirmButton = { TextButton(onClick = viewModel::confirmUnsafeHttp) { Text(language.pick("仍要傳送", "仍要发送")) } },
+                dismissButton = { TextButton(onClick = viewModel::dismissUnsafeHttp) { Text(language.pick("取消", "取消")) } },
             )
         }
     }
 }
 
 @Composable
-private fun RootBottomBar(viewModel: MainViewModel, selected: Screen) {
+private fun RootBottomBar(viewModel: MainViewModel, selected: Screen, language: AppLanguage) {
     Surface(
         modifier = Modifier.fillMaxWidth().height(52.dp),
         shadowElevation = 4.dp,
@@ -172,10 +182,32 @@ private fun RootBottomBar(viewModel: MainViewModel, selected: Screen) {
             modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CompactBottomItem("對話", Icons.Default.Chat, selected == Screen.CONVERSATIONS, viewModel::openConversations)
-            CompactBottomItem("角色", Icons.Default.Person, selected == Screen.CHARACTERS, viewModel::openCharacters)
-            CompactBottomItem("資料庫", Icons.Default.Storage, selected == Screen.LIBRARY, viewModel::openLibrary)
-            CompactBottomItem("設定", Icons.Default.Settings, selected == Screen.SETTINGS, viewModel::openSettings)
+            CompactBottomItem(language.pick("對話", "对话"), Icons.Default.Chat, selected == Screen.CONVERSATIONS, viewModel::openConversations)
+            CompactBottomItem(language.pick("角色", "角色"), Icons.Default.Person, selected == Screen.CHARACTERS, viewModel::openCharacters)
+            CompactBottomItem(language.pick("資料庫", "资料库"), Icons.Default.Storage, selected == Screen.LIBRARY, viewModel::openLibrary)
+            CompactBottomItem(language.pick("設定", "设置"), Icons.Default.Settings, selected == Screen.SETTINGS, viewModel::openSettings)
+        }
+    }
+}
+
+@Composable
+private fun CompactTopBar(
+    title: String,
+    subtitle: String? = null,
+    navigationIcon: (@Composable () -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    Surface(Modifier.fillMaxWidth(), shadowElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
+        Row(
+            Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (navigationIcon != null) navigationIcon() else Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
         }
     }
 }
@@ -203,22 +235,21 @@ private fun RowScope.CompactBottomItem(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ConversationsScreen(viewModel: MainViewModel) {
+private fun ConversationsScreen(viewModel: MainViewModel, language: AppLanguage) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     Scaffold(
-        topBar = { TopAppBar(title = { Text("AI Chat") }) },
-        bottomBar = { RootBottomBar(viewModel, Screen.CONVERSATIONS) },
-        floatingActionButton = { FloatingActionButton(onClick = { viewModel.beginNewChat() }) { Icon(Icons.Default.Add, "新增對話") } },
+        topBar = { CompactTopBar(language.pick("聽雪居", "听雪居")) },
+        bottomBar = { RootBottomBar(viewModel, Screen.CONVERSATIONS, language) },
+        floatingActionButton = { FloatingActionButton(onClick = { viewModel.beginNewChat() }) { Icon(Icons.Default.Add, language.pick("新增對話", "新增对话")) } },
     ) { padding ->
-        if (conversations.isEmpty()) EmptyState("還沒有對話", "按右下角新增一般對話，或從角色頁開始劇情。", Modifier.padding(padding))
-        else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (conversations.isEmpty()) EmptyState(language.pick("還沒有對話", "还没有对话"), language.pick("按右下角新增一般對話，或從角色頁開始劇情。", "按右下角新增一般对话，或从角色页开始剧情。"), Modifier.padding(padding))
+        else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(conversations, key = { it.id }) { conversation ->
                 Card(Modifier.fillMaxWidth().clickable { viewModel.selectConversation(conversation.id) }) {
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(conversation.title, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        IconButton(onClick = { viewModel.deleteConversation(conversation) }) { Icon(Icons.Default.Delete, "刪除對話") }
+                        IconButton(onClick = { viewModel.deleteConversation(conversation) }) { Icon(Icons.Default.Delete, language.pick("刪除對話", "删除对话")) }
                     }
                 }
             }
@@ -226,71 +257,68 @@ private fun ConversationsScreen(viewModel: MainViewModel) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ProfilesScreen(viewModel: MainViewModel, type: ProfileType) {
+private fun ProfilesScreen(viewModel: MainViewModel, type: ProfileType, language: AppLanguage) {
     val profiles by (if (type == ProfileType.CHARACTER) viewModel.characters else viewModel.personas).collectAsStateWithLifecycle()
     val importTarget = if (type == ProfileType.CHARACTER) ImportTarget.CHARACTER else ImportTarget.PERSONA
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { viewModel.importDocument(it, importTarget) } }
-    val title = if (type == ProfileType.CHARACTER) "角色" else "Persona"
+    val title = if (type == ProfileType.CHARACTER) language.pick("角色", "角色") else "Persona"
     Scaffold(
-        topBar = { TopAppBar(title = { Text(title) }, actions = { IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, "匯入文件") } }) },
-        bottomBar = { if (type == ProfileType.CHARACTER) RootBottomBar(viewModel, Screen.CHARACTERS) },
-        floatingActionButton = { FloatingActionButton(onClick = { viewModel.newProfile(type) }) { Icon(Icons.Default.Add, "新增$title") } },
+        topBar = { CompactTopBar(title, actions = { IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, language.pick("匯入文件", "导入文件")) } }) },
+        bottomBar = { if (type == ProfileType.CHARACTER) RootBottomBar(viewModel, Screen.CHARACTERS, language) },
+        floatingActionButton = { FloatingActionButton(onClick = { viewModel.newProfile(type) }) { Icon(Icons.Default.Add, language.pick("新增$title", "新增$title")) } },
     ) { padding ->
-        if (profiles.isEmpty()) EmptyState("還沒有$title", "可以手動建立，或從 TXT、JSON、DOCX 文件交給 AI 整理。", Modifier.padding(padding))
-        else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(profiles, key = { it.id }) { profile -> ProfileRow(profile, type == ProfileType.CHARACTER, viewModel) }
+        if (profiles.isEmpty()) EmptyState(language.pick("還沒有$title", "还没有$title"), language.pick("可以手動建立，或從 TXT、JSON、DOCX 文件交給 AI 整理。", "可以手动建立，或从 TXT、JSON、DOCX 文件交给 AI 整理。"), Modifier.padding(padding))
+        else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(profiles, key = { it.id }) { profile -> ProfileRow(profile, type == ProfileType.CHARACTER, viewModel, language) }
         }
     }
 }
 
 @Composable
-private fun ProfileRow(profile: ProfileEntity, canChat: Boolean, viewModel: MainViewModel) {
+private fun ProfileRow(profile: ProfileEntity, canChat: Boolean, viewModel: MainViewModel, language: AppLanguage) {
     Card(Modifier.fillMaxWidth().clickable { viewModel.editProfile(profile) }) {
         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(profile.name, fontWeight = FontWeight.Bold)
                 if (profile.summary.isNotBlank()) Text(profile.summary, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
             }
-            if (canChat) IconButton(onClick = { viewModel.beginNewChat(profile.id) }) { Icon(Icons.Default.Chat, "開始聊天") }
-            IconButton(onClick = { viewModel.editProfile(profile) }) { Icon(Icons.Default.Edit, "編輯") }
-            IconButton(onClick = { viewModel.deleteProfile(profile) }) { Icon(Icons.Default.Delete, "刪除") }
+            if (canChat) IconButton(onClick = { viewModel.beginNewChat(profile.id) }) { Icon(Icons.Default.Chat, language.pick("開始聊天", "开始聊天")) }
+            IconButton(onClick = { viewModel.editProfile(profile) }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑")) }
+            IconButton(onClick = { viewModel.deleteProfile(profile) }) { Icon(Icons.Default.Delete, language.pick("刪除", "删除")) }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LibraryScreen(viewModel: MainViewModel) {
+private fun LibraryScreen(viewModel: MainViewModel, language: AppLanguage) {
     val personas by viewModel.personas.collectAsStateWithLifecycle()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { viewModel.importDocument(it, ImportTarget.PERSONA) } }
-    Scaffold(topBar = { TopAppBar(title = { Text("資料庫") }) }, bottomBar = { RootBottomBar(viewModel, Screen.LIBRARY) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Scaffold(topBar = { CompactTopBar(language.pick("資料庫", "资料库")) }, bottomBar = { RootBottomBar(viewModel, Screen.LIBRARY, language) }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Card(Modifier.fillMaxWidth().clickable(onClick = viewModel::openWorldSets)) {
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.MenuBook, null); Spacer(Modifier.width(12.dp))
-                        Column { Text("世界設定集", fontWeight = FontWeight.Bold); Text("地點、人物關係與規則", style = MaterialTheme.typography.bodySmall) }
+                        Column { Text(language.pick("世界設定集", "世界设定集"), fontWeight = FontWeight.Bold); Text(language.pick("地點、人物關係與規則", "地点、人物关系与规则"), style = MaterialTheme.typography.bodySmall) }
                     }
                 }
             }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Persona", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                    IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, "匯入 Persona") }
-                    IconButton(onClick = { viewModel.newProfile(ProfileType.PERSONA) }) { Icon(Icons.Default.Add, "新增 Persona") }
+                    IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, language.pick("匯入 Persona", "导入 Persona")) }
+                    IconButton(onClick = { viewModel.newProfile(ProfileType.PERSONA) }) { Icon(Icons.Default.Add, language.pick("新增 Persona", "新增 Persona")) }
                 }
             }
-            if (personas.isEmpty()) item { Text("尚未建立 Persona。你仍然可以不指定身份直接聊天。") }
-            items(personas, key = { it.id }) { ProfileRow(it, false, viewModel) }
+            if (personas.isEmpty()) item { Text(language.pick("尚未建立 Persona。你仍然可以不指定身份直接聊天。", "尚未建立 Persona。你仍然可以不指定身份直接聊天。")) }
+            items(personas, key = { it.id }) { ProfileRow(it, false, viewModel, language) }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ProfileEditScreen(viewModel: MainViewModel) {
+private fun ProfileEditScreen(viewModel: MainViewModel, language: AppLanguage) {
     val source by viewModel.editingProfile.collectAsStateWithLifecycle()
     val draft = source ?: return
     var name by remember { mutableStateOf(draft.name) }
@@ -302,43 +330,42 @@ private fun ProfileEditScreen(viewModel: MainViewModel) {
     var alternates by remember { mutableStateOf(draft.alternateGreetings.joinToString("\n")) }
     var instructions by remember { mutableStateOf(draft.extraInstructions) }
     var showHelp by remember { mutableStateOf(false) }
-    val title = if (draft.type == ProfileType.CHARACTER) "角色設定" else "Persona 設定"
-    Scaffold(topBar = { TopAppBar(title = { Text(title) }, navigationIcon = { Back { if (draft.type == ProfileType.CHARACTER) viewModel.openCharacters() else viewModel.openLibrary() } }) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("名稱") }, supportingText = { Text("例如：艾莉亞、本人、第三人稱旁白") })
-            OutlinedTextField(summary, { summary = it }, Modifier.fillMaxWidth(), label = { Text("簡介") }, minLines = 2)
-            OutlinedTextField(personality, { personality = it }, Modifier.fillMaxWidth(), label = { Text("個性") }, minLines = 3)
-            OutlinedTextField(background, { background = it }, Modifier.fillMaxWidth(), label = { Text("背景") }, minLines = 4)
-            OutlinedTextField(examples, { examples = it }, Modifier.fillMaxWidth(), label = { Text("範例對話") }, minLines = 3)
-            OutlinedTextField(greeting, { greeting = it }, Modifier.fillMaxWidth(), label = { Text("開場白") }, minLines = 3)
-            OutlinedTextField(alternates, { alternates = it }, Modifier.fillMaxWidth(), label = { Text("替代開場白") }, supportingText = { Text("每行一個替代版本") }, minLines = 2)
-            OutlinedTextField(instructions, { instructions = it }, Modifier.fillMaxWidth(), label = { Text("額外指示") }, minLines = 2)
-            TextButton(onClick = { showHelp = !showHelp }) { Text(if (showHelp) "收合填寫示範" else "查看填寫示範") }
-            if (showHelp) Card { Text("簡介：一名尋找失落城市的旅行學者。\n個性：冷靜、觀察敏銳，面對熟人會偶爾開玩笑。\n背景：曾在北方學院研究古代文字。\n範例對話：我不會急著下結論，先看看牆上的刻痕。\n開場白：你也注意到這扇門了嗎？", Modifier.padding(12.dp)) }
+    val title = if (draft.type == ProfileType.CHARACTER) language.pick("角色設定", "角色设置") else language.pick("Persona 設定", "Persona 设置")
+    Scaffold(topBar = { CompactTopBar(title, navigationIcon = { Back(language) { if (draft.type == ProfileType.CHARACTER) viewModel.openCharacters() else viewModel.openLibrary() } }) }) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("名稱", "名称")) }, supportingText = { Text(language.pick("例如：艾莉亞、本人、第三人稱旁白", "例如：艾莉亚、本人、第三人称旁白")) })
+            OutlinedTextField(summary, { summary = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("簡介", "简介")) }, minLines = 2)
+            OutlinedTextField(personality, { personality = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("個性", "个性")) }, minLines = 3)
+            OutlinedTextField(background, { background = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("背景", "背景")) }, minLines = 4)
+            OutlinedTextField(examples, { examples = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("範例對話", "范例对话")) }, minLines = 3)
+            OutlinedTextField(greeting, { greeting = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("開場白", "开场白")) }, minLines = 3)
+            OutlinedTextField(alternates, { alternates = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("替代開場白", "替代开场白")) }, supportingText = { Text(language.pick("每行一個替代版本", "每行一个替代版本")) }, minLines = 2)
+            OutlinedTextField(instructions, { instructions = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("額外指示", "额外指示")) }, minLines = 2)
+            TextButton(onClick = { showHelp = !showHelp }) { Text(if (showHelp) language.pick("收合填寫示範", "收合填写示范") else language.pick("查看填寫示範", "查看填写示范")) }
+            if (showHelp) Card { Text(language.pick("簡介：一名尋找失落城市的旅行學者。\n個性：冷靜、觀察敏銳，面對熟人會偶爾開玩笑。\n背景：曾在北方學院研究古代文字。\n範例對話：我不會急著下結論，先看看牆上的刻痕。\n開場白：你也注意到這扇門了嗎？", "简介：一名寻找失落城市的旅行学者。\n个性：冷静、观察敏锐，面对熟人会偶尔开玩笑。\n背景：曾在北方学院研究古代文字。\n范例对话：我不会急着下结论，先看看墙上的刻痕。\n开场白：你也注意到这扇门了吗？"), Modifier.padding(12.dp)) }
             Button(onClick = {
                 viewModel.saveProfile(ProfileDraft(draft.id, draft.type, name, summary, personality, background, examples, greeting, alternates.lines().filter(String::isNotBlank), instructions))
-            }, Modifier.fillMaxWidth()) { Text("儲存") }
+            }, Modifier.fillMaxWidth()) { Text(language.pick("儲存", "保存")) }
             Spacer(Modifier.height(16.dp))
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WorldSetsScreen(viewModel: MainViewModel) {
+private fun WorldSetsScreen(viewModel: MainViewModel, language: AppLanguage) {
     val sets by viewModel.worldSets.collectAsStateWithLifecycle()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { viewModel.importDocument(it, ImportTarget.WORLD_SET) } }
     Scaffold(
-        topBar = { TopAppBar(title = { Text("世界設定集") }, navigationIcon = { Back(viewModel::openLibrary) }, actions = { IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, "匯入世界設定") } }) },
-        floatingActionButton = { FloatingActionButton(onClick = viewModel::newWorldSet) { Icon(Icons.Default.Add, "新增設定集") } },
+        topBar = { CompactTopBar(language.pick("世界設定集", "世界设定集"), navigationIcon = { Back(language, viewModel::openLibrary) }, actions = { IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, language.pick("匯入世界設定", "导入世界设定")) } }) },
+        floatingActionButton = { FloatingActionButton(onClick = viewModel::newWorldSet) { Icon(Icons.Default.Add, language.pick("新增設定集", "新增设定集")) } },
     ) { padding ->
-        if (sets.isEmpty()) EmptyState("還沒有世界設定集", "手動新增條目，或匯入文件讓 AI 拆成關鍵詞設定。", Modifier.padding(padding))
-        else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (sets.isEmpty()) EmptyState(language.pick("還沒有世界設定集", "还没有世界设定集"), language.pick("手動新增條目，或匯入文件讓 AI 拆成關鍵詞設定。", "手动新增条目，或导入文件让 AI 拆成关键词设定。"), Modifier.padding(padding))
+        else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(sets, key = { it.id }) { set ->
                 Card(Modifier.fillMaxWidth().clickable { viewModel.editWorldSet(set) }) {
                     Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(set.name, Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                        IconButton(onClick = { viewModel.deleteWorldSet(set) }) { Icon(Icons.Default.Delete, "刪除") }
+                        IconButton(onClick = { viewModel.deleteWorldSet(set) }) { Icon(Icons.Default.Delete, language.pick("刪除", "删除")) }
                     }
                 }
             }
@@ -346,9 +373,8 @@ private fun WorldSetsScreen(viewModel: MainViewModel) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WorldSetEditScreen(viewModel: MainViewModel) {
+private fun WorldSetEditScreen(viewModel: MainViewModel, language: AppLanguage) {
     val worldSet by viewModel.editingWorldSet.collectAsStateWithLifecycle()
     val entries by viewModel.editingWorldEntries.collectAsStateWithLifecycle()
     var name by remember(worldSet?.id) { mutableStateOf(worldSet?.name.orEmpty()) }
@@ -356,54 +382,53 @@ private fun WorldSetEditScreen(viewModel: MainViewModel) {
     var editingEntry by remember { mutableStateOf<WorldEntryEntity?>(null) }
     var showEntryDialog by remember { mutableStateOf(false) }
     Scaffold(
-        topBar = { TopAppBar(title = { Text("編輯世界設定集") }, navigationIcon = { Back(viewModel::openWorldSets) }) },
+        topBar = { CompactTopBar(language.pick("編輯世界設定集", "编辑世界设定集"), navigationIcon = { Back(language, viewModel::openWorldSets) }) },
         floatingActionButton = {
-            if (worldSet != null) FloatingActionButton(onClick = { editingEntry = null; showEntryDialog = true }) { Icon(Icons.Default.Add, "新增條目") }
+            if (worldSet != null) FloatingActionButton(onClick = { editingEntry = null; showEntryDialog = true }) { Icon(Icons.Default.Add, language.pick("新增條目", "新增条目")) }
         },
     ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
-                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("設定集名稱") })
-                OutlinedTextField(depth, { depth = it.filter(Char::isDigit) }, Modifier.fillMaxWidth(), label = { Text("掃描最近訊息數") })
-                Button(onClick = { viewModel.saveWorldSet(name, depth.toIntOrNull() ?: 10) }, Modifier.fillMaxWidth()) { Text(if (worldSet == null) "建立設定集" else "儲存設定集") }
+                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("設定集名稱", "设定集名称")) })
+                OutlinedTextField(depth, { depth = it.filter(Char::isDigit) }, Modifier.fillMaxWidth(), label = { Text(language.pick("掃描最近訊息數", "扫描最近消息数")) })
+                Button(onClick = { viewModel.saveWorldSet(name, depth.toIntOrNull() ?: 10) }, Modifier.fillMaxWidth()) { Text(if (worldSet == null) language.pick("建立設定集", "建立设定集") else language.pick("儲存設定集", "保存设定集")) }
             }
-            if (worldSet == null) item { Text("先建立設定集，就能新增關鍵詞條目。") }
+            if (worldSet == null) item { Text(language.pick("先建立設定集，就能新增關鍵詞條目。", "先建立设定集，就能新增关键词条目。")) }
             items(entries, key = { it.id }) { entry ->
                 Card(Modifier.fillMaxWidth().clickable { editingEntry = entry; showEntryDialog = true }) {
                     Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) { Text(entry.title, fontWeight = FontWeight.Bold); Text(if (entry.alwaysInclude) "每次附加" else jsonStrings(entry.keywordsJson).joinToString(", "), style = MaterialTheme.typography.bodySmall) }
-                        IconButton(onClick = { viewModel.deleteWorldEntry(entry) }) { Icon(Icons.Default.Delete, "刪除") }
+                        Column(Modifier.weight(1f)) { Text(entry.title, fontWeight = FontWeight.Bold); Text(if (entry.alwaysInclude) language.pick("每次附加", "每次附加") else jsonStrings(entry.keywordsJson).joinToString(", "), style = MaterialTheme.typography.bodySmall) }
+                        IconButton(onClick = { viewModel.deleteWorldEntry(entry) }) { Icon(Icons.Default.Delete, language.pick("刪除", "删除")) }
                     }
                 }
             }
         }
     }
-    if (showEntryDialog) WorldEntryDialog(editingEntry, { showEntryDialog = false }) { id, title, keys, content, always, enabled ->
+    if (showEntryDialog) WorldEntryDialog(editingEntry, language, { showEntryDialog = false }) { id, title, keys, content, always, enabled ->
         viewModel.saveWorldEntry(id, title, keys, content, always, enabled); showEntryDialog = false
     }
 }
 
 @Composable
-private fun WorldEntryDialog(entry: WorldEntryEntity?, onDismiss: () -> Unit, onSave: (String?, String, String, String, Boolean, Boolean) -> Unit) {
+private fun WorldEntryDialog(entry: WorldEntryEntity?, language: AppLanguage, onDismiss: () -> Unit, onSave: (String?, String, String, String, Boolean, Boolean) -> Unit) {
     var title by remember(entry?.id) { mutableStateOf(entry?.title.orEmpty()) }
     var keys by remember(entry?.id) { mutableStateOf(entry?.let { jsonStrings(it.keywordsJson).joinToString(", ") }.orEmpty()) }
     var content by remember(entry?.id) { mutableStateOf(entry?.content.orEmpty()) }
     var always by remember(entry?.id) { mutableStateOf(entry?.alwaysInclude ?: false) }
     var enabled by remember(entry?.id) { mutableStateOf(entry?.enabled ?: true) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("世界設定條目") }, text = {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(language.pick("世界設定條目", "世界设定条目")) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(title, { title = it }, label = { Text("標題") })
-            OutlinedTextField(keys, { keys = it }, label = { Text("關鍵詞") }, supportingText = { Text("用逗號分隔") })
-            OutlinedTextField(content, { content = it }, label = { Text("內容") }, minLines = 4)
-            ToggleRow("每次都附加", always) { always = it }
-            ToggleRow("啟用", enabled) { enabled = it }
+            OutlinedTextField(title, { title = it }, label = { Text(language.pick("標題", "标题")) })
+            OutlinedTextField(keys, { keys = it }, label = { Text(language.pick("關鍵詞", "关键词")) }, supportingText = { Text(language.pick("用逗號分隔", "用逗号分隔")) })
+            OutlinedTextField(content, { content = it }, label = { Text(language.pick("內容", "内容")) }, minLines = 4)
+            ToggleRow(language.pick("每次都附加", "每次都附加"), always) { always = it }
+            ToggleRow(language.pick("啟用", "启用"), enabled) { enabled = it }
         }
-    }, confirmButton = { TextButton(onClick = { onSave(entry?.id, title, keys, content, always, enabled) }) { Text("儲存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+    }, confirmButton = { TextButton(onClick = { onSave(entry?.id, title, keys, content, always, enabled) }) { Text(language.pick("儲存", "保存")) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(language.pick("取消", "取消")) } })
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NewChatScreen(viewModel: MainViewModel) {
+private fun NewChatScreen(viewModel: MainViewModel, language: AppLanguage) {
     val character by viewModel.newChatCharacter.collectAsStateWithLifecycle()
     val personas by viewModel.personas.collectAsStateWithLifecycle()
     val sets by viewModel.worldSets.collectAsStateWithLifecycle()
@@ -416,59 +441,93 @@ private fun NewChatScreen(viewModel: MainViewModel) {
             character?.let { addAll(jsonStrings(it.alternateGreetingsJson)) }
         }.distinct()
     }
-    Scaffold(topBar = { TopAppBar(title = { Text("開始新對話") }, navigationIcon = { Back(viewModel::openConversations) }) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { Text("角色：${character?.name ?: "一般聊天"}", style = MaterialTheme.typography.titleMedium) }
+    Scaffold(topBar = { CompactTopBar(language.pick("開始新對話", "开始新对话"), navigationIcon = { Back(language, viewModel::openConversations) }) }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item { Text(language.pick("角色：${character?.name ?: "一般聊天"}", "角色：${character?.name ?: "一般聊天"}"), style = MaterialTheme.typography.titleMedium) }
             if (greetings.size > 1) {
-                item { Text("選擇角色開場白", fontWeight = FontWeight.Bold) }
+                item { Text(language.pick("選擇角色開場白", "选择角色开场白"), fontWeight = FontWeight.Bold) }
                 items(greetings) { option -> SelectRow(option, greeting == option) { viewModel.selectNewChatGreeting(option) } }
             }
-            item { Text("選擇 Persona（可略過）", fontWeight = FontWeight.Bold) }
-            item { SelectRow("不指定 Persona", personaId == null) { viewModel.selectNewChatPersona(null) } }
+            item { Text(language.pick("選擇 Persona（可略過）", "选择 Persona（可略过）"), fontWeight = FontWeight.Bold) }
+            item { SelectRow(language.pick("不指定 Persona", "不指定 Persona"), personaId == null) { viewModel.selectNewChatPersona(null) } }
             items(personas, key = { it.id }) { SelectRow(it.name, personaId == it.id) { viewModel.selectNewChatPersona(it.id) } }
-            item { Text("啟用世界設定集（可複選）", Modifier.padding(top = 8.dp), fontWeight = FontWeight.Bold) }
-            if (sets.isEmpty()) item { Text("尚未建立世界設定集。") }
+            item { Text(language.pick("啟用世界設定集（可複選）", "启用世界设定集（可复选）"), Modifier.padding(top = 8.dp), fontWeight = FontWeight.Bold) }
+            if (sets.isEmpty()) item { Text(language.pick("尚未建立世界設定集。", "尚未建立世界设定集。")) }
             items(sets, key = { it.id }) { set -> CheckRow(set.name, set.id in setIds) { viewModel.toggleNewChatWorldSet(set.id) } }
-            item { Button(viewModel::createConfiguredConversation, Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("建立對話") } }
+            item { Button(viewModel::createConfiguredConversation, Modifier.fillMaxWidth().padding(top = 12.dp)) { Text(language.pick("建立對話", "建立对话")) } }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChatScreen(viewModel: MainViewModel) {
+private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val contexts by viewModel.generationContexts.collectAsStateWithLifecycle()
     val input by viewModel.input.collectAsStateWithLifecycle()
     val streaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
+    val selectedId by viewModel.selectedConversationId.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+    var lastOpenedId by remember { mutableStateOf<String?>(null) }
+    var autoFollow by remember { mutableStateOf(true) }
     val contextMap = remember(contexts) { contexts.associate { it.messageId to jsonStrings(it.activatedWorldEntriesJson) } }
+    LaunchedEffect(listState, messages.size) {
+        snapshotFlow { listState.isNearBottom(messages.lastIndex) }
+            .collect { autoFollow = it }
+    }
+    LaunchedEffect(selectedId, messages.size) {
+        if (selectedId != null && selectedId != lastOpenedId && messages.isNotEmpty()) {
+            listState.scrollToItem(messages.lastIndex)
+            autoFollow = true
+            lastOpenedId = selectedId
+        }
+    }
+    LaunchedEffect(messages.lastOrNull()?.id, messages.lastOrNull()?.content) {
+        if (messages.isNotEmpty() && autoFollow) listState.animateScrollToItem(messages.lastIndex)
+    }
     Scaffold(
-        topBar = { TopAppBar(title = { Column { Text("AI Chat"); Text(settings.model, style = MaterialTheme.typography.labelSmall, maxLines = 1) } }, navigationIcon = { Back(viewModel::openConversations) }, actions = {
-            IconButton(onClick = viewModel::openChatInfo) { Icon(Icons.Default.Info, "對話資訊") }
-            IconButton(onClick = viewModel::openModels) { Icon(Icons.Default.Tune, "選擇模型") }
-        }) },
-        bottomBar = { MessageComposer(input, streaming, viewModel::setInput, viewModel::send, viewModel::stopStreaming) },
+        topBar = {
+            CompactTopBar(
+                title = language.pick("聽雪居", "听雪居"),
+                subtitle = settings.model,
+                navigationIcon = { Back(language, viewModel::openConversations) },
+                actions = {
+                    IconButton(onClick = viewModel::openChatInfo) { Icon(Icons.Default.Info, language.pick("對話資訊", "对话信息")) }
+                    IconButton(onClick = viewModel::openModels) { Icon(Icons.Default.Tune, language.pick("選擇模型", "选择模型")) }
+                },
+            )
+        },
+        bottomBar = { MessageComposer(input, streaming, language, viewModel::setInput, viewModel::send, viewModel::stopStreaming) },
     ) { padding ->
-        if (messages.isEmpty()) EmptyState("開始聊天", "輸入訊息，或從角色頁建立帶有開場白的對話。", Modifier.padding(padding))
-        else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(messages, key = { it.id }) { message ->
-                MessageBubble(
-                    message = message,
-                    worldHits = contextMap[message.id].orEmpty(),
-                    onEdit = viewModel::editMessage,
-                    onResend = viewModel::resendFromMessage,
-                )
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            ChatBackground(conversation?.backgroundImagePath.orEmpty(), settings.darkTheme)
+            if (messages.isEmpty()) EmptyState(language.pick("開始聊天", "开始聊天"), language.pick("輸入訊息，或從角色頁建立帶有開場白的對話。", "输入消息，或从角色页建立带有开场白的对话。"))
+            else LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(messages, key = { it.id }) { message ->
+                    MessageBubble(
+                        message = message,
+                        worldHits = contextMap[message.id].orEmpty(),
+                        language = language,
+                        onEdit = viewModel::editMessage,
+                        onResend = viewModel::resendFromMessage,
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MessageComposer(input: String, streaming: Boolean, onInput: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit) {
+private fun MessageComposer(input: String, streaming: Boolean, language: AppLanguage, onInput: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit) {
     Surface(shadowElevation = 3.dp) { Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
-        OutlinedTextField(input, onInput, Modifier.weight(1f), placeholder = { Text("輸入訊息") }, maxLines = 5)
-        IconButton(onClick = if (streaming) onStop else onSend) { Icon(if (streaming) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send, if (streaming) "停止" else "送出") }
+        OutlinedTextField(input, onInput, Modifier.weight(1f), placeholder = { Text(language.pick("輸入訊息", "输入消息")) }, maxLines = 5)
+        IconButton(onClick = if (streaming) onStop else onSend) { Icon(if (streaming) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send, if (streaming) language.pick("停止", "停止") else language.pick("送出", "发送")) }
     } }
 }
 
@@ -476,6 +535,7 @@ private fun MessageComposer(input: String, streaming: Boolean, onInput: (String)
 private fun MessageBubble(
     message: MessageEntity,
     worldHits: List<String>,
+    language: AppLanguage,
     onEdit: (String, String) -> Unit,
     onResend: (String) -> Unit,
 ) {
@@ -489,13 +549,13 @@ private fun MessageBubble(
             Column(Modifier.padding(12.dp)) {
                 if (message.content.isBlank()) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else SelectionContainer { MarkdownText(message.content) }
                 if (worldHits.isNotEmpty()) {
-                    TextButton(onClick = { expanded = !expanded }) { Text("世界設定命中 ${worldHits.size} 條") }
+                    TextButton(onClick = { expanded = !expanded }) { Text(language.pick("世界設定命中 ${worldHits.size} 條", "世界设定命中 ${worldHits.size} 条")) }
                     if (expanded) Text(worldHits.joinToString("\n") { "• $it" }, style = MaterialTheme.typography.bodySmall)
                 }
                 if (message.content.isNotBlank()) Row {
-                    IconButton(onClick = { clipboard.setText(AnnotatedString(message.content)) }) { Icon(Icons.Default.ContentCopy, "複製", Modifier.size(18.dp)) }
-                    IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, "編輯", Modifier.size(18.dp)) }
-                    IconButton(onClick = { onResend(message.id) }) { Icon(Icons.Default.Refresh, "重新發送", Modifier.size(18.dp)) }
+                    IconButton(onClick = { clipboard.setText(AnnotatedString(message.content)) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp)) }
+                    IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑"), Modifier.size(18.dp)) }
+                    IconButton(onClick = { onResend(message.id) }) { Icon(Icons.Default.Refresh, language.pick("重新發送", "重新发送"), Modifier.size(18.dp)) }
                 }
             }
         }
@@ -503,7 +563,7 @@ private fun MessageBubble(
     if (editing) {
         AlertDialog(
             onDismissRequest = { editing = false },
-            title = { Text(if (user) "編輯自己的訊息" else "編輯 AI 訊息") },
+            title = { Text(if (user) language.pick("編輯自己的訊息", "编辑自己的消息") else language.pick("編輯 AI 訊息", "编辑 AI 消息")) },
             text = {
                 OutlinedTextField(
                     value = editText,
@@ -511,74 +571,100 @@ private fun MessageBubble(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 5,
                     maxLines = 12,
-                    label = { Text("訊息內容") },
+                    label = { Text(language.pick("訊息內容", "消息内容")) },
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     onEdit(message.id, editText)
                     editing = false
-                }) { Text("儲存") }
+                }) { Text(language.pick("儲存", "保存")) }
             },
-            dismissButton = { TextButton(onClick = { editing = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { editing = false }) { Text(language.pick("取消", "取消")) } },
         )
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChatInfoScreen(viewModel: MainViewModel) {
+private fun ChatInfoScreen(viewModel: MainViewModel, language: AppLanguage) {
     val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
     val personas by viewModel.personas.collectAsStateWithLifecycle()
     val sets by viewModel.worldSets.collectAsStateWithLifecycle()
     val activeIds by viewModel.activeWorldSetIds.collectAsStateWithLifecycle()
     val current = conversation ?: return
     var summary by remember(current.id, current.summary) { mutableStateOf(current.summary) }
-    Scaffold(topBar = { TopAppBar(title = { Text("對話資訊") }, navigationIcon = { Back(viewModel::openCurrentChat) }) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val backgroundLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::setConversationBackground)
+    }
+    Scaffold(topBar = { CompactTopBar(language.pick("對話資訊", "对话信息"), navigationIcon = { Back(language, viewModel::openCurrentChat) }) }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                Text(language.pick("聊天背景", "聊天背景"), fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { backgroundLauncher.launch(arrayOf("image/*")) }, Modifier.weight(1f)) { Text(language.pick("上傳背景圖", "上传背景图")) }
+                    if (current.backgroundImagePath.isNotBlank()) {
+                        OutlinedButton(onClick = viewModel::clearConversationBackground, Modifier.weight(1f)) { Text(language.pick("移除背景", "移除背景")) }
+                    }
+                }
+                Text(
+                    if (current.backgroundImagePath.isBlank()) language.pick("目前使用預設背景。", "目前使用默认背景。") else language.pick("已設定自訂背景圖。", "已设置自定义背景图。"),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             item { Text("Persona", fontWeight = FontWeight.Bold) }
-            item { SelectRow("不指定 Persona", current.personaId == null) { viewModel.updateConversationPersona(null) } }
+            item { SelectRow(language.pick("不指定 Persona", "不指定 Persona"), current.personaId == null) { viewModel.updateConversationPersona(null) } }
             items(personas, key = { it.id }) { persona -> SelectRow(persona.name, current.personaId == persona.id) { viewModel.updateConversationPersona(persona.id) } }
-            item { Text("世界設定集", Modifier.padding(top = 8.dp), fontWeight = FontWeight.Bold) }
+            item { Text(language.pick("世界設定集", "世界设定集"), Modifier.padding(top = 8.dp), fontWeight = FontWeight.Bold) }
             items(sets, key = { it.id }) { set -> CheckRow(set.name, set.id in activeIds) { viewModel.toggleConversationWorldSet(set.id) } }
             item {
-                OutlinedTextField(summary, { summary = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text("較早對話摘要") }, supportingText = { Text("上下文過長時由 AI 自動建立，也可以手動修正。") }, minLines = 5)
-                Button(onClick = { viewModel.saveConversationSummary(summary) }, Modifier.fillMaxWidth()) { Text("儲存摘要") }
+                OutlinedTextField(summary, { summary = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text(language.pick("較早對話摘要", "较早对话摘要")) }, supportingText = { Text(language.pick("上下文過長時由 AI 自動建立，也可以手動修正。", "上下文过长时由 AI 自动建立，也可以手动修正。")) }, minLines = 5)
+                Button(onClick = { viewModel.saveConversationSummary(summary) }, Modifier.fillMaxWidth()) { Text(language.pick("儲存摘要", "保存摘要")) }
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreen(viewModel: MainViewModel, settings: AppSettings) {
     var provider by remember { mutableStateOf(settings.provider) }; var base by remember { mutableStateOf(settings.customBaseUrl) }
     var model by remember { mutableStateOf(settings.model) }; var key by remember { mutableStateOf("") }; var dark by remember { mutableStateOf(settings.darkTheme) }
+    var language by remember(settings.language) { mutableStateOf(settings.language) }
     var menu by remember { mutableStateOf(false) }
+    var languageMenu by remember { mutableStateOf(false) }
+    val lang = settings.language
     LaunchedEffect(provider) { if (provider != settings.provider) model = provider.defaultModel; key = "" }
-    Scaffold(topBar = { TopAppBar(title = { Text("設定") }) }, bottomBar = { RootBottomBar(viewModel, Screen.SETTINGS) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box { OutlinedButton(onClick = { menu = true }) { Text(provider.label) }; DropdownMenu(menu, { menu = false }) { Provider.entries.forEach { option -> DropdownMenuItem({ Text(option.label) }, { provider = option; menu = false }) } } }
-            if (provider == Provider.CUSTOM) OutlinedTextField(base, { base = it }, Modifier.fillMaxWidth(), label = { Text("Base URL") }, supportingText = { Text("HTTP 可以使用，但傳送前會警告可能外洩。") })
+    Scaffold(topBar = { CompactTopBar(lang.pick("設定", "设置")) }, bottomBar = { RootBottomBar(viewModel, Screen.SETTINGS, lang) }) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(lang.pick("供應商", "供应商"), fontWeight = FontWeight.Bold)
+            Box { OutlinedButton(onClick = { menu = true }) { Text(if (provider == Provider.CUSTOM) lang.pick("自訂端點", "自定义端点") else provider.label) }; DropdownMenu(menu, { menu = false }) { Provider.entries.forEach { option -> DropdownMenuItem({ Text(if (option == Provider.CUSTOM) lang.pick("自訂端點", "自定义端点") else option.label) }, { provider = option; menu = false }) } } }
+            if (provider == Provider.CUSTOM) OutlinedTextField(base, { base = it }, Modifier.fillMaxWidth(), label = { Text("Base URL") }, supportingText = { Text(lang.pick("HTTP 可以使用，但傳送前會警告可能外洩。", "HTTP 可以使用，但发送前会警告可能外泄。")) })
             else Text(provider.baseUrl, style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(key, { key = it }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text(if (viewModel.currentApiKey(provider).isBlank()) "填入 API Key" else "已保存；留白可沿用") }, visualTransformation = PasswordVisualTransformation())
-            OutlinedTextField(model, { model = it }, Modifier.fillMaxWidth(), label = { Text("模型 ID") })
-            ToggleRow("深色模式", dark) { dark = it }
-            Button(onClick = { viewModel.saveSettings(provider, base, model, key, dark) }, Modifier.fillMaxWidth()) { Text("儲存設定") }
-            Text("API Key 使用 Android Keystore 保護。App 不會自動備份本機內容。", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(key, { key = it }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text(if (viewModel.currentApiKey(provider).isBlank()) lang.pick("填入 API Key", "填入 API Key") else lang.pick("已保存；留白可沿用", "已保存；留白可沿用")) }, visualTransformation = PasswordVisualTransformation())
+            OutlinedTextField(model, { model = it }, Modifier.fillMaxWidth(), label = { Text(lang.pick("模型 ID", "模型 ID")) })
+            Text(lang.pick("介面語言", "界面语言"), fontWeight = FontWeight.Bold)
+            Box {
+                OutlinedButton(onClick = { languageMenu = true }) { Text(language.label) }
+                DropdownMenu(languageMenu, { languageMenu = false }) {
+                    AppLanguage.entries.forEach { option ->
+                        DropdownMenuItem({ Text(option.label) }, { language = option; languageMenu = false })
+                    }
+                }
+            }
+            ToggleRow(lang.pick("深色模式", "深色模式"), dark) { dark = it }
+            Button(onClick = { viewModel.saveSettings(provider, base, model, key, dark, language) }, Modifier.fillMaxWidth()) { Text(lang.pick("儲存設定", "保存设置")) }
+            Text(lang.pick("API Key 使用 Android Keystore 保護。App 不會自動備份本機內容。", "API Key 使用 Android Keystore 保护。App 不会自动备份本机内容。"), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ModelsScreen(viewModel: MainViewModel, selected: String) {
+private fun ModelsScreen(viewModel: MainViewModel, selected: String, language: AppLanguage) {
     val models by viewModel.models.collectAsStateWithLifecycle(); val loading by viewModel.isLoadingModels.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }; val filtered = remember(models, query) { filterModels(models, query) }
-    Scaffold(topBar = { TopAppBar(title = { Text("選擇模型") }, navigationIcon = { Back(viewModel::openCurrentChat) }, actions = { IconButton(onClick = viewModel::refreshModels) { Icon(Icons.Default.Refresh, "重新載入") } }) }) { padding ->
+    Scaffold(topBar = { CompactTopBar(language.pick("選擇模型", "选择模型"), navigationIcon = { Back(language, viewModel::openCurrentChat) }, actions = { IconButton(onClick = viewModel::refreshModels) { Icon(Icons.Default.Refresh, language.pick("重新載入", "重新载入")) } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            if (models.isNotEmpty()) OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(12.dp), placeholder = { Text("搜尋模型") }, leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "清除") } })
-            when { loading -> LoadingOverlay("載入模型..."); models.isEmpty() -> EmptyState("尚未取得模型", "可重新載入，或在設定頁手動填寫模型 ID。"); filtered.isEmpty() -> EmptyState("找不到符合的模型", "清除搜尋文字後再試一次。"); else -> LazyColumn { items(filtered, key = { it }) { model -> Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).clickable { viewModel.chooseModel(model) }) { Row(Modifier.fillMaxWidth().padding(14.dp)) { Text(model, Modifier.weight(1f)); if (model == selected) Icon(Icons.Default.Check, "目前模型") } } } } }
+            if (models.isNotEmpty()) OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(10.dp), placeholder = { Text(language.pick("搜尋模型", "搜索模型")) }, leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, language.pick("清除", "清除")) } })
+            when { loading -> LoadingOverlay(language.pick("載入模型...", "载入模型...")); models.isEmpty() -> EmptyState(language.pick("尚未取得模型", "尚未取得模型"), language.pick("可重新載入，或在設定頁手動填寫模型 ID。", "可重新载入，或在设置页手动填写模型 ID。")); filtered.isEmpty() -> EmptyState(language.pick("找不到符合的模型", "找不到符合的模型"), language.pick("清除搜尋文字後再試一次。", "清除搜索文字后再试一次。")); else -> LazyColumn { items(filtered, key = { it }) { model -> Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp).clickable { viewModel.chooseModel(model) }) { Row(Modifier.fillMaxWidth().padding(14.dp)) { Text(model, Modifier.weight(1f)); if (model == selected) Icon(Icons.Default.Check, language.pick("目前模型", "目前模型")) } } } } }
         }
     }
 }
@@ -586,9 +672,29 @@ private fun ModelsScreen(viewModel: MainViewModel, selected: String) {
 @Composable private fun SelectRow(label: String, selected: Boolean, onClick: () -> Unit) = Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Checkbox(selected, { onClick() }); Text(label) }
 @Composable private fun CheckRow(label: String, checked: Boolean, onClick: () -> Unit) = Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Checkbox(checked, { onClick() }); Text(label) }
 @Composable private fun ToggleRow(label: String, checked: Boolean, onCheck: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(label, Modifier.weight(1f)); Switch(checked, onCheck) }
-@Composable private fun Back(onClick: () -> Unit) = IconButton(onClick) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+@Composable private fun Back(language: AppLanguage, onClick: () -> Unit) = IconButton(onClick) { Icon(Icons.AutoMirrored.Filled.ArrowBack, language.pick("返回", "返回")) }
 @Composable private fun LoadingOverlay(text: String) = Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Card { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(24.dp)); Spacer(Modifier.width(12.dp)); Text(text) } } }
 @Composable private fun EmptyState(title: String, detail: String, modifier: Modifier = Modifier) = Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(title, style = MaterialTheme.typography.titleMedium); Text(detail) } }
+
+@Composable
+private fun ChatBackground(path: String, darkTheme: Boolean) {
+    val bitmap = remember(path) { path.takeIf(String::isNotBlank)?.let(BitmapFactory::decodeFile) }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        Box(Modifier.fillMaxSize().background(if (darkTheme) Color.Black.copy(alpha = 0.48f) else Color.White.copy(alpha = 0.54f)))
+    }
+}
+
+private fun LazyListState.isNearBottom(lastIndex: Int): Boolean {
+    if (lastIndex <= 0) return true
+    val visibleLast = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return true
+    return visibleLast >= lastIndex - 1
+}
 
 @Composable
 private fun MarkdownText(markdown: String) {
@@ -609,8 +715,8 @@ private fun inlineMarkdown(text: String): AnnotatedString = buildAnnotatedString
 }
 
 @Composable
-private fun ErrorDialog(error: UiError, onDismiss: () -> Unit, onSettings: () -> Unit, onTrim: () -> Unit, onNew: () -> Unit) {
+private fun ErrorDialog(error: UiError, language: AppLanguage, onDismiss: () -> Unit, onSettings: () -> Unit, onTrim: () -> Unit, onNew: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, title = { Text(error.title) }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(error.message); Text(error.suggestion, fontWeight = FontWeight.Bold) } }, confirmButton = {
-        if (error.kind == ErrorKind.CONTEXT_LENGTH) TextButton(onClick = onTrim) { Text("裁切舊訊息並重試") } else TextButton(onClick = onDismiss) { Text("關閉") }
-    }, dismissButton = { if (error.kind == ErrorKind.CONTEXT_LENGTH) TextButton(onClick = onNew) { Text("建立新對話") } else TextButton(onClick = onSettings) { Text("前往設定") } })
+        if (error.kind == ErrorKind.CONTEXT_LENGTH) TextButton(onClick = onTrim) { Text(language.pick("裁切舊訊息並重試", "裁切旧消息并重试")) } else TextButton(onClick = onDismiss) { Text(language.pick("關閉", "关闭")) }
+    }, dismissButton = { if (error.kind == ErrorKind.CONTEXT_LENGTH) TextButton(onClick = onNew) { Text(language.pick("建立新對話", "建立新对话")) } else TextButton(onClick = onSettings) { Text(language.pick("前往設定", "前往设置")) } })
 }
