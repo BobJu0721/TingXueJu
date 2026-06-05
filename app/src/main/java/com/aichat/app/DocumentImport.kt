@@ -43,6 +43,7 @@ data class WorldEntryDraft(
 
 data class WorldSetDraft(
     val name: String = "",
+    val overview: String = "",
     val entries: List<WorldEntryDraft> = emptyList(),
 )
 
@@ -132,6 +133,7 @@ fun parseAiWorldSetDraft(text: String): WorldSetDraft {
     val entries = json.optJSONArray("entries") ?: JSONArray()
     return WorldSetDraft(
         name = json.optString("name", "匯入的世界設定"),
+        overview = json.optString("overview"),
         entries = buildList {
             for (index in 0 until entries.length()) {
                 val entry = entries.optJSONObject(index) ?: continue

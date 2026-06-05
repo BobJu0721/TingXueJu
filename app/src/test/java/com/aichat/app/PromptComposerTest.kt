@@ -55,6 +55,21 @@ class PromptComposerTest {
         assertEquals("打開城門", result.messages.last().content)
     }
 
+    @Test
+    fun promptIncludesWorldOverviewEvenWithoutEntryHits() {
+        val result = composePrompt(
+            ConversationEntity("c", "chat", now, now),
+            listOf(message("1", "沒有關鍵詞", 1)),
+            null,
+            null,
+            listOf(worldSet.copy(overview = "低科技海島王國面臨能源禁忌。")),
+            listOf(entry("miss", "不會命中")),
+        )
+
+        assertTrue(result.messages.first().content.contains("低科技海島王國面臨能源禁忌。"))
+        assertTrue(result.activatedEntries.isEmpty())
+    }
+
     private fun message(id: String, content: String, createdAt: Long) =
         MessageEntity(id, "c", "user", content, createdAt)
 

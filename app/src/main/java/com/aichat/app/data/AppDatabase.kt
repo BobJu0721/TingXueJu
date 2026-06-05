@@ -10,6 +10,7 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
@@ -34,7 +35,7 @@ interface ChatDao {
     @Query("SELECT * FROM generation_contexts WHERE messageId IN (SELECT id FROM messages WHERE conversationId = :conversationId)")
     fun observeGenerationContexts(conversationId: String): Flow<List<GenerationContextEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertConversation(conversation: ConversationEntity)
 
     @Update
@@ -43,7 +44,7 @@ interface ChatDao {
     @Delete
     suspend fun deleteConversation(conversation: ConversationEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertMessage(message: MessageEntity)
 
     @Update
@@ -58,7 +59,7 @@ interface ChatDao {
     @Query("DELETE FROM messages WHERE conversationId = :conversationId AND createdAt >= :createdAt")
     suspend fun deleteMessagesAtOrAfter(conversationId: String, createdAt: Long)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertGenerationContext(context: GenerationContextEntity)
 
     @Query("SELECT * FROM profiles WHERE type = :type ORDER BY updatedAt DESC")
@@ -67,7 +68,7 @@ interface ChatDao {
     @Query("SELECT * FROM profiles WHERE id = :id")
     suspend fun getProfile(id: String?): ProfileEntity?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertProfile(profile: ProfileEntity)
 
     @Delete
@@ -82,7 +83,7 @@ interface ChatDao {
     @Query("SELECT * FROM world_sets WHERE id IN (:ids)")
     suspend fun getWorldSets(ids: List<String>): List<WorldSetEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertWorldSet(worldSet: WorldSetEntity)
 
     @Delete
@@ -94,7 +95,10 @@ interface ChatDao {
     @Query("SELECT * FROM world_entries WHERE worldSetId IN (:worldSetIds) ORDER BY sortOrder ASC, title ASC")
     suspend fun getWorldEntries(worldSetIds: List<String>): List<WorldEntryEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Query("SELECT worldSetId, COUNT(*) AS count FROM world_entries GROUP BY worldSetId")
+    fun observeWorldEntryCounts(): Flow<List<WorldEntryCount>>
+
+    @Upsert
     suspend fun upsertWorldEntry(entry: WorldEntryEntity)
 
     @Delete
@@ -123,7 +127,7 @@ interface ChatDao {
         ConversationWorldSetEntity::class,
         GenerationContextEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -157,13 +161,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE world_sets ADD COLUMN overview TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "ai-chat.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
             }
     }
 }

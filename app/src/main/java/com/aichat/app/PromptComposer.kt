@@ -67,6 +67,15 @@ fun composePrompt(
         appendLine(labels.continueConversation)
         appendProfile(labels.aiCharacter, character, labels)
         appendProfile(labels.persona, persona, labels)
+        val overviews = worldSets.filter { it.overview.isNotBlank() }
+        if (overviews.isNotEmpty()) {
+            appendLine()
+            appendLine("## ${labels.worldOverview}")
+            overviews.forEach { set ->
+                appendLine("### ${set.name}")
+                appendLine(set.overview)
+            }
+        }
         if (activatedEntries.isNotEmpty()) {
             appendLine()
             appendLine("## ${labels.worldHits}")

@@ -42,6 +42,7 @@ enum class Screen {
 enum class ErrorKind { GENERAL, CONTEXT_LENGTH }
 enum class PendingAction { SEND, RETRY, RESEND_FROM_MESSAGE }
 enum class ImportTarget { CHARACTER, PERSONA, WORLD_SET }
+enum class ManualSummaryMode { UN_SUMMARIZED, REBUILD_ALL }
 
 data class UiError(
     val title: String,
@@ -58,6 +59,11 @@ data class PendingDocumentImport(
         get() = ((document.text.length + IMPORT_CHUNK_SIZE - 1) / IMPORT_CHUNK_SIZE).coerceAtLeast(1) + 1
 }
 
+data class WorldTemplate(
+    val name: String,
+    val categories: List<String>,
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = AppDatabase.get(application).chatDao()
@@ -70,6 +76,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val characters = dao.observeProfiles(ProfileType.CHARACTER).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val personas = dao.observeProfiles(ProfileType.PERSONA).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val worldSets = dao.observeWorldSets().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val worldEntryCounts = dao.observeWorldEntryCounts().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val worldTemplates = DEFAULT_WORLD_TEMPLATES
 
     private val _selectedConversationId = MutableStateFlow<String?>(null)
     val selectedConversationId = _selectedConversationId.asStateFlow()
@@ -97,6 +105,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val models = _models.asStateFlow()
     private val _isLoadingModels = MutableStateFlow(false)
     val isLoadingModels = _isLoadingModels.asStateFlow()
+    private val _isSummarizingConversation = MutableStateFlow(false)
+    val isSummarizingConversation = _isSummarizingConversation.asStateFlow()
     private val _notice = MutableStateFlow<String?>(null)
     val notice = _notice.asStateFlow()
     private val _editingProfile = MutableStateFlow<ProfileDraft?>(null)
@@ -134,6 +144,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openLibrary() { _screen.value = Screen.LIBRARY }
     fun openWorldSets() { _screen.value = Screen.WORLD_SETS }
     fun openSettings() { _screen.value = Screen.SETTINGS }
+    fun openRootScreen(screen: Screen) {
+        if (screen in listOf(Screen.CONVERSATIONS, Screen.CHARACTERS, Screen.LIBRARY, Screen.SETTINGS)) {
+            _screen.value = screen
+        }
+    }
     fun openCurrentChat() { _screen.value = Screen.CHAT }
     fun openModels() { _screen.value = Screen.MODELS; refreshModels() }
     fun clearError() { _error.value = null }
@@ -316,8 +331,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteProfile(profile: ProfileEntity) { viewModelScope.launch { dao.deleteProfile(profile) } }
 
     fun newWorldSet() {
-        _editingWorldSet.value = null
-        _screen.value = Screen.WORLD_SET_EDIT
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val worldSet = WorldSetEntity(
+                id = UUID.randomUUID().toString(),
+                name = text("未命名世界設定集", "未命名世界设定集"),
+                scanDepth = 10,
+                createdAt = now,
+                updatedAt = now,
+            )
+            dao.upsertWorldSet(worldSet)
+            _editingWorldSet.value = worldSet
+            _screen.value = Screen.WORLD_SET_EDIT
+        }
     }
 
     fun editWorldSet(worldSet: WorldSetEntity) {
@@ -325,7 +351,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _screen.value = Screen.WORLD_SET_EDIT
     }
 
-    fun saveWorldSet(name: String, scanDepth: Int) {
+    fun saveWorldSet(name: String, overview: String, scanDepth: Int) {
         if (name.isBlank()) return
         viewModelScope.launch {
             val now = System.currentTimeMillis()
@@ -336,10 +362,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 scanDepth = scanDepth.coerceIn(1, 100),
                 createdAt = existing?.createdAt ?: now,
                 updatedAt = now,
+                overview = overview.trim(),
             )
             dao.upsertWorldSet(worldSet)
             _editingWorldSet.value = worldSet
             showNotice(text("世界設定集已儲存", "世界设定集已保存"))
+        }
+    }
+
+    fun updateWorldSetMetadata(name: String, overview: String, scanDepth: Int) {
+        val existing = _editingWorldSet.value ?: return
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) return
+        val cleanOverview = overview.trim()
+        val cleanDepth = scanDepth.coerceIn(1, 100)
+        if (cleanName == existing.name && cleanOverview == existing.overview && cleanDepth == existing.scanDepth) return
+        viewModelScope.launch {
+            val updated = existing.copy(
+                name = cleanName,
+                overview = cleanOverview,
+                scanDepth = cleanDepth,
+                updatedAt = System.currentTimeMillis(),
+            )
+            dao.upsertWorldSet(updated)
+            _editingWorldSet.value = updated
+        }
+    }
+
+    fun createWorldTemplate(template: WorldTemplate) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val worldSet = WorldSetEntity(
+                id = UUID.randomUUID().toString(),
+                name = template.name,
+                scanDepth = 10,
+                createdAt = now,
+                updatedAt = now,
+            )
+            dao.upsertWorldSet(worldSet)
+            template.categories.forEachIndexed { index, category ->
+                dao.upsertWorldEntry(
+                    WorldEntryEntity(
+                        id = UUID.randomUUID().toString(),
+                        worldSetId = worldSet.id,
+                        title = category,
+                        keywordsJson = "[]",
+                        content = text("請在這裡填寫$category。", "请在这里填写$category。"),
+                        enabled = false,
+                        sortOrder = index,
+                    ),
+                )
+            }
+            _editingWorldSet.value = worldSet
+            _screen.value = Screen.WORLD_SET_EDIT
         }
     }
 
@@ -454,7 +529,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun saveImportedWorldSet(draft: WorldSetDraft) {
         val now = System.currentTimeMillis()
-        val worldSet = WorldSetEntity(UUID.randomUUID().toString(), draft.name.ifBlank { text("匯入的世界設定", "导入的世界设定") }, 10, now, now)
+        val worldSet = WorldSetEntity(
+            id = UUID.randomUUID().toString(),
+            name = draft.name.ifBlank { text("匯入的世界設定", "导入的世界设定") },
+            scanDepth = 10,
+            createdAt = now,
+            updatedAt = now,
+            overview = draft.overview.trim(),
+        )
         dao.upsertWorldSet(worldSet)
         draft.entries.forEachIndexed { index, entry ->
             dao.upsertWorldEntry(
@@ -612,7 +694,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (error: Throwable) {
             dao.deleteMessage(assistant.id)
             if (allowAutoSummary && error is ApiException && error.isContextLengthError) {
-                runCatching { summarizeConversation(conversationId, current, key) }
+                runCatching { summarizeConversation(conversationId, current, key, keepRecentMessages = 8, mode = ManualSummaryMode.UN_SUMMARIZED) }
                     .onSuccess {
                         showNotice(current.language.pick("已摘要較早對話，正在重試", "已摘要较早对话，正在重试"))
                         streamConversation(conversationId, allowAutoSummary = false)
@@ -626,13 +708,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun summarizeConversation(conversationId: String, settings: AppSettings, key: String) {
+    fun manuallySummarizeConversation(mode: ManualSummaryMode, keepRecentMessages: Int) {
+        val id = _selectedConversationId.value ?: return
+        if (_isStreaming.value || _isSummarizingConversation.value) return
+        val current = settings.value
+        val key = secretStore.get(current.provider)
+        if (key.isBlank() || current.resolvedBaseUrl.isBlank()) {
+            _error.value = UiError(
+                current.language.pick("缺少 API 設定", "缺少 API 设置"),
+                current.language.pick("請設定 ${current.provider.label} 的 API Key 與網址。", "请设置 ${current.provider.label} 的 API Key 与网址。"),
+                current.language.pick("前往設定頁填寫後再試一次。", "前往设置页填写后再试一次。"),
+            )
+            return
+        }
+        viewModelScope.launch {
+            _isSummarizingConversation.value = true
+            try {
+                summarizeConversation(id, current, key, keepRecentMessages.coerceIn(1, 100), mode)
+            } catch (error: Throwable) {
+                _error.value = mapError(error, current.language.pick("手動壓縮失敗", "手动压缩失败"))
+            } finally {
+                _isSummarizingConversation.value = false
+            }
+        }
+    }
+
+    private suspend fun summarizeConversation(
+        conversationId: String,
+        settings: AppSettings,
+        key: String,
+        keepRecentMessages: Int,
+        mode: ManualSummaryMode,
+    ) {
         val conversation = dao.getConversation(conversationId) ?: return
-        val history = dao.getMessages(conversationId).filter { it.content.isNotBlank() && it.createdAt > conversation.summaryThroughAt }
-        val older = history.dropLast(8)
+        val history = dao.getMessages(conversationId).filter { it.content.isNotBlank() }
+        val plan = conversationSummaryPlan(conversation, history, keepRecentMessages, mode)
+        val older = plan.messagesToSummarize
         if (older.isEmpty()) throw IOException(settings.language.pick("目前沒有足夠的較早訊息可以摘要。", "目前没有足够的较早消息可以摘要。"))
         val text = buildString {
-            if (conversation.summary.isNotBlank()) appendLine("既有摘要：\n${conversation.summary}\n")
+            if (plan.existingSummary.isNotBlank()) appendLine("既有摘要：\n${plan.existingSummary}\n")
             older.forEach { appendLine("${it.role}: ${it.content}") }
         }
         val summaries = text.chunked(IMPORT_CHUNK_SIZE).map { chunk ->
@@ -645,7 +759,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ApiChatMessage("system", settings.language.mergeSummaryInstruction()),
             ApiChatMessage("user", summaries.joinToString("\n\n")),
         ))
-        val updated = conversation.copy(summary = summary.trim(), summaryThroughAt = older.maxOf { it.createdAt })
+        val updated = conversation.copy(summary = summary.trim(), summaryThroughAt = plan.summaryThroughAt)
         dao.updateConversation(updated)
         _selectedConversation.value = updated
     }
@@ -730,4 +844,48 @@ private fun ProfileEntity.toDraft() = ProfileDraft(
     greeting = greeting,
     alternateGreetings = jsonStrings(alternateGreetingsJson),
     extraInstructions = extraInstructions,
+)
+
+data class ConversationSummaryPlan(
+    val messagesToSummarize: List<MessageEntity>,
+    val existingSummary: String,
+    val summaryThroughAt: Long,
+)
+
+fun conversationSummaryPlan(
+    conversation: ConversationEntity,
+    messages: List<MessageEntity>,
+    keepRecentMessages: Int,
+    mode: ManualSummaryMode,
+): ConversationSummaryPlan {
+    val keepCount = keepRecentMessages.coerceIn(1, 100)
+    val nonBlank = messages.filter { it.content.isNotBlank() }.sortedBy { it.createdAt }
+    val candidates = when (mode) {
+        ManualSummaryMode.UN_SUMMARIZED -> nonBlank.filter { it.createdAt > conversation.summaryThroughAt }
+        ManualSummaryMode.REBUILD_ALL -> nonBlank
+    }
+    val messagesToSummarize = candidates.dropLast(keepCount)
+    val summaryThroughAt = messagesToSummarize.lastOrNull()?.createdAt ?: conversation.summaryThroughAt
+    val existingSummary = when (mode) {
+        ManualSummaryMode.UN_SUMMARIZED -> conversation.summary
+        ManualSummaryMode.REBUILD_ALL -> ""
+    }
+    return ConversationSummaryPlan(messagesToSummarize, existingSummary, summaryThroughAt)
+}
+
+private val WORLD_TEMPLATE_CATEGORIES = listOf(
+    "時代科技",
+    "主要舞台",
+    "核心衝突",
+    "勢力陣營",
+    "力量資源",
+    "社會規則/禁忌",
+    "角色相關歷史",
+)
+
+private val DEFAULT_WORLD_TEMPLATES = listOf(
+    WorldTemplate("奇幻世界模板", WORLD_TEMPLATE_CATEGORIES),
+    WorldTemplate("科幻世界模板", WORLD_TEMPLATE_CATEGORIES),
+    WorldTemplate("現代都市模板", WORLD_TEMPLATE_CATEGORIES),
+    WorldTemplate("架空史詩模板", WORLD_TEMPLATE_CATEGORIES),
 )

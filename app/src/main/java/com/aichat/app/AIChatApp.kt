@@ -1,6 +1,7 @@
 package com.aichat.app
 
 import android.graphics.BitmapFactory
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -13,9 +14,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,6 +26,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -73,6 +78,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -81,11 +88,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -101,6 +112,8 @@ import com.aichat.app.data.ProfileType
 import com.aichat.app.data.Provider
 import com.aichat.app.data.WorldEntryEntity
 import com.aichat.app.data.WorldSetEntity
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val DOCUMENT_TYPES = arrayOf(
     "text/plain",
@@ -108,6 +121,8 @@ private val DOCUMENT_TYPES = arrayOf(
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/octet-stream",
 )
+
+private val ROOT_SCREENS = setOf(Screen.CONVERSATIONS, Screen.CHARACTERS, Screen.LIBRARY, Screen.SETTINGS)
 
 @Composable
 fun AIChatApp(viewModel: MainViewModel) {
@@ -120,15 +135,26 @@ fun AIChatApp(viewModel: MainViewModel) {
     val isImporting by viewModel.isImporting.collectAsStateWithLifecycle()
     val language = settings.language
     LaunchedEffect(notice) { if (notice != null) viewModel.clearNotice() }
+    BackHandler(enabled = screen !in ROOT_SCREENS) {
+        when (screen) {
+            Screen.CHAT, Screen.NEW_CHAT -> viewModel.openConversations()
+            Screen.CHAT_INFO, Screen.MODELS -> viewModel.openCurrentChat()
+            Screen.PROFILE_EDIT -> {
+                val draft = viewModel.editingProfile.value
+                if (draft?.type == ProfileType.PERSONA) viewModel.openLibrary() else viewModel.openCharacters()
+            }
+            Screen.WORLD_SETS -> viewModel.openLibrary()
+            Screen.WORLD_SET_EDIT -> viewModel.openWorldSets()
+            else -> Unit
+        }
+    }
 
     MaterialTheme(colorScheme = if (settings.darkTheme) darkColorScheme() else lightColorScheme()) {
         Scaffold { outer ->
             Box(Modifier.padding(outer)) {
                 when (screen) {
-                    Screen.CONVERSATIONS -> ConversationsScreen(viewModel, language)
-                    Screen.CHARACTERS -> ProfilesScreen(viewModel, ProfileType.CHARACTER, language)
-                    Screen.LIBRARY -> LibraryScreen(viewModel, language)
-                    Screen.SETTINGS -> SettingsScreen(viewModel, settings)
+                    Screen.CONVERSATIONS, Screen.CHARACTERS, Screen.LIBRARY, Screen.SETTINGS ->
+                        RootPager(viewModel, screen, settings, language)
                     Screen.CHAT -> ChatScreen(viewModel, language)
                     Screen.MODELS -> ModelsScreen(viewModel, settings.model, language)
                     Screen.PROFILE_EDIT -> ProfileEditScreen(viewModel, language)
@@ -172,7 +198,69 @@ fun AIChatApp(viewModel: MainViewModel) {
 }
 
 @Composable
-private fun RootBottomBar(viewModel: MainViewModel, selected: Screen, language: AppLanguage) {
+private fun RootPager(
+    viewModel: MainViewModel,
+    selected: Screen,
+    settings: AppSettings,
+    language: AppLanguage,
+) {
+    val roots = listOf(Screen.CONVERSATIONS, Screen.CHARACTERS, Screen.LIBRARY, Screen.SETTINGS)
+    val selectedPage = roots.indexOf(selected).coerceAtLeast(0)
+    val pagerState = rememberPagerState(initialPage = selectedPage) { roots.size }
+    val scope = rememberCoroutineScope()
+    val currentSelected by rememberUpdatedState(selected)
+    var programmaticTargetPage by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(selectedPage) {
+        if (pagerState.currentPage != selectedPage) {
+            programmaticTargetPage = selectedPage
+            pagerState.animateScrollToPage(selectedPage)
+            programmaticTargetPage = null
+        }
+    }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage to programmaticTargetPage }.collect { (page, targetPage) ->
+            if (targetPage != null) return@collect
+            val target = roots[page]
+            if (target != currentSelected) viewModel.openRootScreen(target)
+        }
+    }
+    Scaffold(
+        bottomBar = {
+            RootBottomBar(viewModel, selected, language) { target ->
+                val targetPage = roots.indexOf(target)
+                if (targetPage < 0) return@RootBottomBar
+                scope.launch {
+                    if (pagerState.currentPage != targetPage) pagerState.animateScrollToPage(targetPage)
+                    viewModel.openRootScreen(target)
+                }
+            }
+        },
+    ) { padding ->
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) { page ->
+            when (roots[page]) {
+                Screen.CONVERSATIONS -> ConversationsScreen(viewModel, language, showBottomBar = false)
+                Screen.CHARACTERS -> ProfilesScreen(viewModel, ProfileType.CHARACTER, language, showBottomBar = false)
+                Screen.LIBRARY -> LibraryScreen(viewModel, language, showBottomBar = false)
+                Screen.SETTINGS -> SettingsScreen(viewModel, settings, showBottomBar = false)
+                else -> Unit
+            }
+        }
+    }
+}
+
+@Composable
+private fun RootBottomBar(
+    viewModel: MainViewModel,
+    selected: Screen,
+    language: AppLanguage,
+    onSelect: ((Screen) -> Unit)? = null,
+) {
+    fun select(screen: Screen) {
+        if (onSelect != null) onSelect(screen) else viewModel.openRootScreen(screen)
+    }
     Surface(
         modifier = Modifier.fillMaxWidth().height(52.dp),
         shadowElevation = 4.dp,
@@ -182,10 +270,10 @@ private fun RootBottomBar(viewModel: MainViewModel, selected: Screen, language: 
             modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CompactBottomItem(language.pick("對話", "对话"), Icons.Default.Chat, selected == Screen.CONVERSATIONS, viewModel::openConversations)
-            CompactBottomItem(language.pick("角色", "角色"), Icons.Default.Person, selected == Screen.CHARACTERS, viewModel::openCharacters)
-            CompactBottomItem(language.pick("資料庫", "资料库"), Icons.Default.Storage, selected == Screen.LIBRARY, viewModel::openLibrary)
-            CompactBottomItem(language.pick("設定", "设置"), Icons.Default.Settings, selected == Screen.SETTINGS, viewModel::openSettings)
+            CompactBottomItem(language.pick("對話", "对话"), Icons.Default.Chat, selected == Screen.CONVERSATIONS) { select(Screen.CONVERSATIONS) }
+            CompactBottomItem(language.pick("角色", "角色"), Icons.Default.Person, selected == Screen.CHARACTERS) { select(Screen.CHARACTERS) }
+            CompactBottomItem(language.pick("資料庫", "资料库"), Icons.Default.Storage, selected == Screen.LIBRARY) { select(Screen.LIBRARY) }
+            CompactBottomItem(language.pick("設定", "设置"), Icons.Default.Settings, selected == Screen.SETTINGS) { select(Screen.SETTINGS) }
         }
     }
 }
@@ -236,11 +324,11 @@ private fun RowScope.CompactBottomItem(
 }
 
 @Composable
-private fun ConversationsScreen(viewModel: MainViewModel, language: AppLanguage) {
+private fun ConversationsScreen(viewModel: MainViewModel, language: AppLanguage, showBottomBar: Boolean = true) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     Scaffold(
         topBar = { CompactTopBar(language.pick("聽雪居", "听雪居")) },
-        bottomBar = { RootBottomBar(viewModel, Screen.CONVERSATIONS, language) },
+        bottomBar = { if (showBottomBar) RootBottomBar(viewModel, Screen.CONVERSATIONS, language) },
         floatingActionButton = { FloatingActionButton(onClick = { viewModel.beginNewChat() }) { Icon(Icons.Default.Add, language.pick("新增對話", "新增对话")) } },
     ) { padding ->
         if (conversations.isEmpty()) EmptyState(language.pick("還沒有對話", "还没有对话"), language.pick("按右下角新增一般對話，或從角色頁開始劇情。", "按右下角新增一般对话，或从角色页开始剧情。"), Modifier.padding(padding))
@@ -258,14 +346,14 @@ private fun ConversationsScreen(viewModel: MainViewModel, language: AppLanguage)
 }
 
 @Composable
-private fun ProfilesScreen(viewModel: MainViewModel, type: ProfileType, language: AppLanguage) {
+private fun ProfilesScreen(viewModel: MainViewModel, type: ProfileType, language: AppLanguage, showBottomBar: Boolean = true) {
     val profiles by (if (type == ProfileType.CHARACTER) viewModel.characters else viewModel.personas).collectAsStateWithLifecycle()
     val importTarget = if (type == ProfileType.CHARACTER) ImportTarget.CHARACTER else ImportTarget.PERSONA
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { viewModel.importDocument(it, importTarget) } }
     val title = if (type == ProfileType.CHARACTER) language.pick("角色", "角色") else "Persona"
     Scaffold(
         topBar = { CompactTopBar(title, actions = { IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, language.pick("匯入文件", "导入文件")) } }) },
-        bottomBar = { if (type == ProfileType.CHARACTER) RootBottomBar(viewModel, Screen.CHARACTERS, language) },
+        bottomBar = { if (showBottomBar && type == ProfileType.CHARACTER) RootBottomBar(viewModel, Screen.CHARACTERS, language) },
         floatingActionButton = { FloatingActionButton(onClick = { viewModel.newProfile(type) }) { Icon(Icons.Default.Add, language.pick("新增$title", "新增$title")) } },
     ) { padding ->
         if (profiles.isEmpty()) EmptyState(language.pick("還沒有$title", "还没有$title"), language.pick("可以手動建立，或從 TXT、JSON、DOCX 文件交給 AI 整理。", "可以手动建立，或从 TXT、JSON、DOCX 文件交给 AI 整理。"), Modifier.padding(padding))
@@ -291,10 +379,10 @@ private fun ProfileRow(profile: ProfileEntity, canChat: Boolean, viewModel: Main
 }
 
 @Composable
-private fun LibraryScreen(viewModel: MainViewModel, language: AppLanguage) {
+private fun LibraryScreen(viewModel: MainViewModel, language: AppLanguage, showBottomBar: Boolean = true) {
     val personas by viewModel.personas.collectAsStateWithLifecycle()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { viewModel.importDocument(it, ImportTarget.PERSONA) } }
-    Scaffold(topBar = { CompactTopBar(language.pick("資料庫", "资料库")) }, bottomBar = { RootBottomBar(viewModel, Screen.LIBRARY, language) }) { padding ->
+    Scaffold(topBar = { CompactTopBar(language.pick("資料庫", "资料库")) }, bottomBar = { if (showBottomBar) RootBottomBar(viewModel, Screen.LIBRARY, language) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Card(Modifier.fillMaxWidth().clickable(onClick = viewModel::openWorldSets)) {
@@ -354,22 +442,57 @@ private fun ProfileEditScreen(viewModel: MainViewModel, language: AppLanguage) {
 @Composable
 private fun WorldSetsScreen(viewModel: MainViewModel, language: AppLanguage) {
     val sets by viewModel.worldSets.collectAsStateWithLifecycle()
+    val templates = viewModel.worldTemplates
+    var showTemplates by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { viewModel.importDocument(it, ImportTarget.WORLD_SET) } }
     Scaffold(
-        topBar = { CompactTopBar(language.pick("世界設定集", "世界设定集"), navigationIcon = { Back(language, viewModel::openLibrary) }, actions = { IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, language.pick("匯入世界設定", "导入世界设定")) } }) },
+        topBar = {
+            CompactTopBar(
+                language.pick("世界設定集", "世界设定集"),
+                navigationIcon = { Back(language, viewModel::openLibrary) },
+                actions = {
+                    TextButton(onClick = { showTemplates = true }) { Text(language.pick("模板", "模板")) }
+                    IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, language.pick("匯入世界設定", "导入世界设定")) }
+                },
+            )
+        },
         floatingActionButton = { FloatingActionButton(onClick = viewModel::newWorldSet) { Icon(Icons.Default.Add, language.pick("新增設定集", "新增设定集")) } },
     ) { padding ->
-        if (sets.isEmpty()) EmptyState(language.pick("還沒有世界設定集", "还没有世界设定集"), language.pick("手動新增條目，或匯入文件讓 AI 拆成關鍵詞設定。", "手动新增条目，或导入文件让 AI 拆成关键词设定。"), Modifier.padding(padding))
+        if (sets.isEmpty()) EmptyState(language.pick("還沒有世界設定集", "还没有世界设定集"), language.pick("可使用模板、手動新增條目，或匯入文件讓 AI 拆成關鍵詞設定。", "可使用模板、手动新增条目，或导入文件让 AI 拆成关键词设定。"), Modifier.padding(padding))
         else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(sets, key = { it.id }) { set ->
                 Card(Modifier.fillMaxWidth().clickable { viewModel.editWorldSet(set) }) {
                     Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(set.name, Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        Column(Modifier.weight(1f)) {
+                            Text(set.name, fontWeight = FontWeight.Bold)
+                            if (set.overview.isNotBlank()) Text(set.overview, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                        }
                         IconButton(onClick = { viewModel.deleteWorldSet(set) }) { Icon(Icons.Default.Delete, language.pick("刪除", "删除")) }
                     }
                 }
             }
         }
+    }
+    if (showTemplates) {
+        AlertDialog(
+            onDismissRequest = { showTemplates = false },
+            title = { Text(language.pick("使用世界觀模板", "使用世界观模板")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    templates.forEach { template ->
+                        Button(
+                            onClick = {
+                                viewModel.createWorldTemplate(template)
+                                showTemplates = false
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(template.name) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showTemplates = false }) { Text(language.pick("取消", "取消")) } },
+        )
     }
 }
 
@@ -378,9 +501,21 @@ private fun WorldSetEditScreen(viewModel: MainViewModel, language: AppLanguage) 
     val worldSet by viewModel.editingWorldSet.collectAsStateWithLifecycle()
     val entries by viewModel.editingWorldEntries.collectAsStateWithLifecycle()
     var name by remember(worldSet?.id) { mutableStateOf(worldSet?.name.orEmpty()) }
+    var overview by remember(worldSet?.id) { mutableStateOf(worldSet?.overview.orEmpty()) }
     var depth by remember(worldSet?.id) { mutableStateOf((worldSet?.scanDepth ?: 10).toString()) }
     var editingEntry by remember { mutableStateOf<WorldEntryEntity?>(null) }
     var showEntryDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(worldSet?.id, name, overview, depth) {
+        val current = worldSet ?: return@LaunchedEffect
+        val scanDepth = depth.toIntOrNull() ?: current.scanDepth
+        if (
+            name.trim() == current.name &&
+            overview.trim() == current.overview &&
+            scanDepth.coerceIn(1, 100) == current.scanDepth
+        ) return@LaunchedEffect
+        delay(600)
+        viewModel.updateWorldSetMetadata(name, overview, scanDepth)
+    }
     Scaffold(
         topBar = { CompactTopBar(language.pick("編輯世界設定集", "编辑世界设定集"), navigationIcon = { Back(language, viewModel::openWorldSets) }) },
         floatingActionButton = {
@@ -390,10 +525,22 @@ private fun WorldSetEditScreen(viewModel: MainViewModel, language: AppLanguage) 
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("設定集名稱", "设定集名称")) })
+                OutlinedTextField(
+                    overview,
+                    { overview = it },
+                    Modifier.fillMaxWidth(),
+                    label = { Text(language.pick("一句話概括", "一句话概括")) },
+                    supportingText = {
+                        Text(language.pick(
+                            "包含：時代與科技水準、主要舞台與關鍵地點、核心衝突、主要勢力/陣營、力量/資源體系、社會規則或禁忌、角色相關重大歷史事件。",
+                            "包含：时代与科技水平、主要舞台与关键地点、核心冲突、主要势力/阵营、力量/资源体系、社会规则或禁忌、角色相关重大历史事件。",
+                        ))
+                    },
+                    minLines = 3,
+                )
                 OutlinedTextField(depth, { depth = it.filter(Char::isDigit) }, Modifier.fillMaxWidth(), label = { Text(language.pick("掃描最近訊息數", "扫描最近消息数")) })
-                Button(onClick = { viewModel.saveWorldSet(name, depth.toIntOrNull() ?: 10) }, Modifier.fillMaxWidth()) { Text(if (worldSet == null) language.pick("建立設定集", "建立设定集") else language.pick("儲存設定集", "保存设定集")) }
             }
-            if (worldSet == null) item { Text(language.pick("先建立設定集，就能新增關鍵詞條目。", "先建立设定集，就能新增关键词条目。")) }
+            if (worldSet == null) item { Text(language.pick("正在建立設定集...", "正在建立设定集...")) }
             items(entries, key = { it.id }) { entry ->
                 Card(Modifier.fillMaxWidth().clickable { editingEntry = entry; showEntryDialog = true }) {
                     Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -421,8 +568,16 @@ private fun WorldEntryDialog(entry: WorldEntryEntity?, language: AppLanguage, on
             OutlinedTextField(title, { title = it }, label = { Text(language.pick("標題", "标题")) })
             OutlinedTextField(keys, { keys = it }, label = { Text(language.pick("關鍵詞", "关键词")) }, supportingText = { Text(language.pick("用逗號分隔", "用逗号分隔")) })
             OutlinedTextField(content, { content = it }, label = { Text(language.pick("內容", "内容")) }, minLines = 4)
-            ToggleRow(language.pick("每次都附加", "每次都附加"), always) { always = it }
-            ToggleRow(language.pick("啟用", "启用"), enabled) { enabled = it }
+            DetailedToggleRow(
+                title = language.pick("每次對話都送出", "每次对话都送出"),
+                detail = language.pick("開啟後不需要命中關鍵詞，每次生成都會把這條設定送給模型。", "开启后不需要命中关键词，每次生成都会把这条设定发送给模型。"),
+                checked = always,
+            ) { always = it }
+            DetailedToggleRow(
+                title = language.pick("使用此條目", "使用此条目"),
+                detail = language.pick("關閉後這條設定不會被關鍵詞觸發，也不會被每次送出。", "关闭后这条设定不会被关键词触发，也不会被每次发送。"),
+                checked = enabled,
+            ) { enabled = it }
         }
     }, confirmButton = { TextButton(onClick = { onSave(entry?.id, title, keys, content, always, enabled) }) { Text(language.pick("儲存", "保存")) } }, dismissButton = { TextButton(onClick = onDismiss) { Text(language.pick("取消", "取消")) } })
 }
@@ -471,6 +626,7 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
     val listState = rememberLazyListState()
     var lastOpenedId by remember { mutableStateOf<String?>(null) }
     var autoFollow by remember { mutableStateOf(true) }
+    var actionMessageId by remember(selectedId) { mutableStateOf<String?>(null) }
     val contextMap = remember(contexts) { contexts.associate { it.messageId to jsonStrings(it.activatedWorldEntriesJson) } }
     LaunchedEffect(listState, messages.size) {
         snapshotFlow { listState.isNearBottom(messages.lastIndex) }
@@ -487,6 +643,7 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
         if (messages.isNotEmpty() && autoFollow) listState.animateScrollToItem(messages.lastIndex)
     }
     Scaffold(
+        contentWindowInsets = WindowInsets(0.dp),
         topBar = {
             CompactTopBar(
                 title = language.pick("聽雪居", "听雪居"),
@@ -514,8 +671,15 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
                         message = message,
                         worldHits = contextMap[message.id].orEmpty(),
                         language = language,
+                        actionsVisible = actionMessageId == message.id,
+                        onToggleActions = {
+                            actionMessageId = if (actionMessageId == message.id) null else message.id
+                        },
                         onEdit = viewModel::editMessage,
-                        onResend = viewModel::resendFromMessage,
+                        onResend = {
+                            actionMessageId = null
+                            viewModel.resendFromMessage(it)
+                        },
                     )
                 }
             }
@@ -525,9 +689,18 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
 
 @Composable
 private fun MessageComposer(input: String, streaming: Boolean, language: AppLanguage, onInput: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit) {
-    Surface(shadowElevation = 3.dp) { Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    Surface(Modifier.imePadding(), shadowElevation = 3.dp) { Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
         OutlinedTextField(input, onInput, Modifier.weight(1f), placeholder = { Text(language.pick("輸入訊息", "输入消息")) }, maxLines = 5)
-        IconButton(onClick = if (streaming) onStop else onSend) { Icon(if (streaming) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send, if (streaming) language.pick("停止", "停止") else language.pick("送出", "发送")) }
+        IconButton(onClick = {
+            if (streaming) onStop()
+            else {
+                onSend()
+                focusManager.clearFocus()
+                keyboard?.hide()
+            }
+        }) { Icon(if (streaming) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send, if (streaming) language.pick("停止", "停止") else language.pick("送出", "发送")) }
     } }
 }
 
@@ -536,6 +709,8 @@ private fun MessageBubble(
     message: MessageEntity,
     worldHits: List<String>,
     language: AppLanguage,
+    actionsVisible: Boolean,
+    onToggleActions: () -> Unit,
     onEdit: (String, String) -> Unit,
     onResend: (String) -> Unit,
 ) {
@@ -544,19 +719,27 @@ private fun MessageBubble(
     var editing by remember { mutableStateOf(false) }
     var editText by remember(message.id, message.content) { mutableStateOf(message.content) }
     val user = message.role == "user"
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
-        Card(Modifier.fillMaxWidth(if (user) .86f else .96f), colors = CardDefaults.cardColors(containerColor = if (user) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)) {
+    val canShowActions = message.content.isNotBlank()
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
+        Card(
+            Modifier
+                .fillMaxWidth(if (user) .86f else .96f)
+                .clickable(enabled = canShowActions, onClick = onToggleActions),
+            colors = CardDefaults.cardColors(containerColor = if (user) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer),
+        ) {
             Column(Modifier.padding(12.dp)) {
                 if (message.content.isBlank()) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else SelectionContainer { MarkdownText(message.content) }
                 if (worldHits.isNotEmpty()) {
                     TextButton(onClick = { expanded = !expanded }) { Text(language.pick("世界設定命中 ${worldHits.size} 條", "世界设定命中 ${worldHits.size} 条")) }
                     if (expanded) Text(worldHits.joinToString("\n") { "• $it" }, style = MaterialTheme.typography.bodySmall)
                 }
-                if (message.content.isNotBlank()) Row {
-                    IconButton(onClick = { clipboard.setText(AnnotatedString(message.content)) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp)) }
-                    IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑"), Modifier.size(18.dp)) }
-                    IconButton(onClick = { onResend(message.id) }) { Icon(Icons.Default.Refresh, language.pick("重新發送", "重新发送"), Modifier.size(18.dp)) }
-                }
+            }
+        }
+        if (canShowActions && actionsVisible) {
+            Row(Modifier.padding(top = 2.dp)) {
+                IconButton(onClick = { clipboard.setText(AnnotatedString(message.content)) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp)) }
+                IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑"), Modifier.size(18.dp)) }
+                IconButton(onClick = { onResend(message.id) }) { Icon(Icons.Default.Refresh, language.pick("重新發送", "重新发送"), Modifier.size(18.dp)) }
             }
         }
     }
@@ -588,11 +771,26 @@ private fun MessageBubble(
 @Composable
 private fun ChatInfoScreen(viewModel: MainViewModel, language: AppLanguage) {
     val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
+    val messages by viewModel.messages.collectAsStateWithLifecycle()
     val personas by viewModel.personas.collectAsStateWithLifecycle()
     val sets by viewModel.worldSets.collectAsStateWithLifecycle()
     val activeIds by viewModel.activeWorldSetIds.collectAsStateWithLifecycle()
+    val entryCounts by viewModel.worldEntryCounts.collectAsStateWithLifecycle()
+    val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
+    val isSummarizing by viewModel.isSummarizingConversation.collectAsStateWithLifecycle()
+    val countMap = remember(entryCounts) { entryCounts.associate { it.worldSetId to it.count } }
     val current = conversation ?: return
-    var summary by remember(current.id, current.summary) { mutableStateOf(current.summary) }
+    var summaryMode by remember(current.id) { mutableStateOf(ManualSummaryMode.UN_SUMMARIZED) }
+    var keepRecentText by remember(current.id) { mutableStateOf("20") }
+    var summaryModeMenu by remember { mutableStateOf(false) }
+    val keepRecentCount = keepRecentText.toIntOrNull()?.coerceIn(1, 100)
+    val summaryPlan = remember(current, messages, keepRecentCount, summaryMode) {
+        keepRecentCount?.let { conversationSummaryPlan(current, messages, it, summaryMode) }
+    }
+    val canSummarize = keepRecentCount != null &&
+        summaryPlan?.messagesToSummarize?.isNotEmpty() == true &&
+        !isStreaming &&
+        !isSummarizing
     val backgroundLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::setConversationBackground)
     }
@@ -615,17 +813,84 @@ private fun ChatInfoScreen(viewModel: MainViewModel, language: AppLanguage) {
             item { SelectRow(language.pick("不指定 Persona", "不指定 Persona"), current.personaId == null) { viewModel.updateConversationPersona(null) } }
             items(personas, key = { it.id }) { persona -> SelectRow(persona.name, current.personaId == persona.id) { viewModel.updateConversationPersona(persona.id) } }
             item { Text(language.pick("世界設定集", "世界设定集"), Modifier.padding(top = 8.dp), fontWeight = FontWeight.Bold) }
-            items(sets, key = { it.id }) { set -> CheckRow(set.name, set.id in activeIds) { viewModel.toggleConversationWorldSet(set.id) } }
             item {
-                OutlinedTextField(summary, { summary = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text(language.pick("較早對話摘要", "较早对话摘要")) }, supportingText = { Text(language.pick("上下文過長時由 AI 自動建立，也可以手動修正。", "上下文过长时由 AI 自动建立，也可以手动修正。")) }, minLines = 5)
-                Button(onClick = { viewModel.saveConversationSummary(summary) }, Modifier.fillMaxWidth()) { Text(language.pick("儲存摘要", "保存摘要")) }
+                Text(
+                    if (activeIds.isEmpty()) language.pick("目前未啟用世界設定集。", "目前未启用世界设定集。")
+                    else language.pick("已啟用 ${activeIds.size} 個世界設定集。", "已启用 ${activeIds.size} 个世界设定集。"),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            items(sets, key = { it.id }) { set ->
+                val count = countMap[set.id] ?: 0
+                CheckRow(
+                    language.pick("${set.name}（$count 條）", "${set.name}（$count 条）"),
+                    set.id in activeIds,
+                ) { viewModel.toggleConversationWorldSet(set.id) }
+            }
+            item {
+                Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(language.pick("手動壓縮對話", "手动压缩对话"), fontWeight = FontWeight.Bold)
+                        Text(
+                            if (current.summary.isBlank()) language.pick("目前沒有較早對話摘要。", "目前没有较早对话摘要。")
+                            else language.pick("目前已有較早對話摘要，之後送給 AI 時會用摘要取代已壓縮的舊訊息。", "目前已有较早对话摘要，之后发送给 AI 时会用摘要取代已压缩的旧消息。"),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (current.summary.isNotBlank()) {
+                            Text(current.summary, maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Box {
+                            OutlinedButton(onClick = { summaryModeMenu = true }, Modifier.fillMaxWidth()) {
+                                Text(manualSummaryModeLabel(summaryMode, language))
+                            }
+                            DropdownMenu(summaryModeMenu, { summaryModeMenu = false }) {
+                                ManualSummaryMode.entries.forEach { option ->
+                                    DropdownMenuItem(
+                                        { Text(manualSummaryModeLabel(option, language)) },
+                                        {
+                                            summaryMode = option
+                                            summaryModeMenu = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            keepRecentText,
+                            { keepRecentText = it.filter(Char::isDigit).take(3) },
+                            Modifier.fillMaxWidth(),
+                            label = { Text(language.pick("保留最近訊息數", "保留最近消息数")) },
+                            supportingText = { Text(language.pick("本次有效，範圍 1 到 100。", "仅本次有效，范围 1 到 100。")) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        )
+                        Text(
+                            when {
+                                keepRecentCount == null -> language.pick("請輸入 1 到 100 的數字。", "请输入 1 到 100 的数字。")
+                                summaryPlan?.messagesToSummarize?.isEmpty() == true -> language.pick("目前沒有足夠的較早訊息可以壓縮。", "目前没有足够的较早消息可以压缩。")
+                                else -> language.pick("將壓縮 ${summaryPlan?.messagesToSummarize?.size ?: 0} 則較早訊息，保留最近 $keepRecentCount 則。", "将压缩 ${summaryPlan?.messagesToSummarize?.size ?: 0} 条较早消息，保留最近 $keepRecentCount 条。")
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = { viewModel.manuallySummarizeConversation(summaryMode, keepRecentCount ?: 20) },
+                            enabled = canSummarize,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                if (isSummarizing) language.pick("壓縮中...", "压缩中...")
+                                else language.pick("開始手動壓縮", "开始手动压缩"),
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SettingsScreen(viewModel: MainViewModel, settings: AppSettings) {
+private fun SettingsScreen(viewModel: MainViewModel, settings: AppSettings, showBottomBar: Boolean = true) {
     var provider by remember { mutableStateOf(settings.provider) }; var base by remember { mutableStateOf(settings.customBaseUrl) }
     var model by remember { mutableStateOf(settings.model) }; var key by remember { mutableStateOf("") }; var dark by remember { mutableStateOf(settings.darkTheme) }
     var language by remember(settings.language) { mutableStateOf(settings.language) }
@@ -633,7 +898,7 @@ private fun SettingsScreen(viewModel: MainViewModel, settings: AppSettings) {
     var languageMenu by remember { mutableStateOf(false) }
     val lang = settings.language
     LaunchedEffect(provider) { if (provider != settings.provider) model = provider.defaultModel; key = "" }
-    Scaffold(topBar = { CompactTopBar(lang.pick("設定", "设置")) }, bottomBar = { RootBottomBar(viewModel, Screen.SETTINGS, lang) }) { padding ->
+    Scaffold(topBar = { CompactTopBar(lang.pick("設定", "设置")) }, bottomBar = { if (showBottomBar) RootBottomBar(viewModel, Screen.SETTINGS, lang) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(lang.pick("供應商", "供应商"), fontWeight = FontWeight.Bold)
             Box { OutlinedButton(onClick = { menu = true }) { Text(if (provider == Provider.CUSTOM) lang.pick("自訂端點", "自定义端点") else provider.label) }; DropdownMenu(menu, { menu = false }) { Provider.entries.forEach { option -> DropdownMenuItem({ Text(if (option == Provider.CUSTOM) lang.pick("自訂端點", "自定义端点") else option.label) }, { provider = option; menu = false }) } } }
@@ -672,7 +937,12 @@ private fun ModelsScreen(viewModel: MainViewModel, selected: String, language: A
 @Composable private fun SelectRow(label: String, selected: Boolean, onClick: () -> Unit) = Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Checkbox(selected, { onClick() }); Text(label) }
 @Composable private fun CheckRow(label: String, checked: Boolean, onClick: () -> Unit) = Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Checkbox(checked, { onClick() }); Text(label) }
 @Composable private fun ToggleRow(label: String, checked: Boolean, onCheck: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(label, Modifier.weight(1f)); Switch(checked, onCheck) }
+@Composable private fun DetailedToggleRow(title: String, detail: String, checked: Boolean, onCheck: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title); Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(checked, onCheck) }
 @Composable private fun Back(language: AppLanguage, onClick: () -> Unit) = IconButton(onClick) { Icon(Icons.AutoMirrored.Filled.ArrowBack, language.pick("返回", "返回")) }
+private fun manualSummaryModeLabel(mode: ManualSummaryMode, language: AppLanguage): String = when (mode) {
+    ManualSummaryMode.UN_SUMMARIZED -> language.pick("壓縮未摘要的較早訊息", "压缩未摘要的较早消息")
+    ManualSummaryMode.REBUILD_ALL -> language.pick("重新壓縮全部較早訊息", "重新压缩全部较早消息")
+}
 @Composable private fun LoadingOverlay(text: String) = Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Card { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(24.dp)); Spacer(Modifier.width(12.dp)); Text(text) } } }
 @Composable private fun EmptyState(title: String, detail: String, modifier: Modifier = Modifier) = Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(title, style = MaterialTheme.typography.titleMedium); Text(detail) } }
 

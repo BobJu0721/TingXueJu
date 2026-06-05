@@ -69,6 +69,12 @@ data class WorldSetEntity(
     val scanDepth: Int = 10,
     val createdAt: Long,
     val updatedAt: Long,
+    val overview: String = "",
+)
+
+data class WorldEntryCount(
+    val worldSetId: String,
+    val count: Int,
 )
 
 @Entity(

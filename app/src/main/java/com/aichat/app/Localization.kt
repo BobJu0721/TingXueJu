@@ -9,6 +9,7 @@ data class PromptLabels(
     val continueConversation: String,
     val aiCharacter: String,
     val persona: String,
+    val worldOverview: String,
     val worldHits: String,
     val olderSummary: String,
     val summary: String,
@@ -25,6 +26,7 @@ fun AppLanguage.promptLabels(): PromptLabels =
             continueConversation = "请自然地延续对话。以下资料是本次对话可使用的背景设定。",
             aiCharacter = "AI 扮演的角色",
             persona = "用户身份 Persona",
+            worldOverview = "已启用的世界设定概括",
             worldHits = "本次命中的世界设定",
             olderSummary = "较早对话摘要",
             summary = "简介",
@@ -39,6 +41,7 @@ fun AppLanguage.promptLabels(): PromptLabels =
             continueConversation = "請自然地延續對話。以下資料是本次對話可使用的背景設定。",
             aiCharacter = "AI 扮演的角色",
             persona = "使用者身份 Persona",
+            worldOverview = "已啟用的世界設定概括",
             worldHits = "本次命中的世界設定",
             olderSummary = "較早對話摘要",
             summary = "簡介",
@@ -64,8 +67,8 @@ fun AppLanguage.profileJsonInstruction(label: String): String =
 
 fun AppLanguage.worldJsonInstruction(): String =
     pick(
-        "將文件拆成可用關鍵詞觸發的世界設定條目。只回傳 JSON，不要 markdown。根物件欄位為 name 與 entries；每個 entry 欄位固定為 title, keywords, content, alwaysInclude。keywords 必須是字串陣列；只有每次都必須知道的核心規則才設 alwaysInclude=true。",
-        "将文件拆成可用关键词触发的世界设定条目。只返回 JSON，不要 markdown。根对象字段为 name 与 entries；每个 entry 字段固定为 title, keywords, content, alwaysInclude。keywords 必须是字符串数组；只有每次都必须知道的核心规则才设 alwaysInclude=true。",
+        "將文件拆成可用關鍵詞觸發的世界設定條目。只回傳 JSON，不要 markdown。根物件欄位為 name、overview 與 entries。overview 用一句話概括時代與科技水準、主要舞台與關鍵地點、核心衝突、主要勢力/陣營、力量/資源體系、一條關鍵的社會規則或禁忌，與角色相關的重大歷史事件。每個 entry 欄位固定為 title, keywords, content, alwaysInclude。keywords 必須是字串陣列；只有每次都必須知道的核心規則才設 alwaysInclude=true。",
+        "将文件拆成可用关键词触发的世界设定条目。只返回 JSON，不要 markdown。根对象字段为 name、overview 与 entries。overview 用一句话概括时代与科技水平、主要舞台与关键地点、核心冲突、主要势力/阵营、力量/资源体系、一条关键的社会规则或禁忌，与角色相关的重大历史事件。每个 entry 字段固定为 title, keywords, content, alwaysInclude。keywords 必须是字符串数组；只有每次都必须知道的核心规则才设 alwaysInclude=true。",
     )
 
 fun AppLanguage.chunkInstruction(instruction: String, index: Int, total: Int): String =
