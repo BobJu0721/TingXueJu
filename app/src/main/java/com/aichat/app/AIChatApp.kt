@@ -678,6 +678,7 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
     var renameDialogVisible by remember(selectedId) { mutableStateOf(false) }
     var renameText by remember(selectedId, conversation?.title) { mutableStateOf(conversation?.title.orEmpty()) }
     val contextMap = remember(contexts) { contexts.associate { it.messageId to jsonStrings(it.activatedWorldEntriesJson) } }
+    val bottomAnchorIndex = messages.size
     LaunchedEffect(listState, messages.size) {
         snapshotFlow {
             Triple(
@@ -686,23 +687,23 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
                 listState.isScrollInProgress,
             )
         }.collect { (_, _, isScrolling) ->
-            if (isScrolling) autoFollow = listState.isNearBottom(messages.lastIndex)
+            if (isScrolling) autoFollow = listState.isNearBottom(bottomAnchorIndex)
         }
     }
     LaunchedEffect(listState, messages.size) {
-        snapshotFlow { messages.isNotEmpty() && !listState.isNearBottom(messages.lastIndex) }
+        snapshotFlow { messages.isNotEmpty() && !listState.isNearBottom(bottomAnchorIndex) }
             .distinctUntilChanged()
             .collect { showScrollToBottom = it }
     }
     LaunchedEffect(selectedId, messages.size) {
         if (selectedId != null && selectedId != lastOpenedId && messages.isNotEmpty()) {
-            listState.scrollToItem(messages.lastIndex)
+            listState.scrollToItem(bottomAnchorIndex)
             autoFollow = true
             lastOpenedId = selectedId
         }
     }
     LaunchedEffect(messages.lastOrNull()?.id, messages.lastOrNull()?.content, autoFollow) {
-        if (messages.isNotEmpty() && autoFollow) listState.scrollToItem(messages.lastIndex)
+        if (messages.isNotEmpty() && autoFollow) listState.scrollToItem(bottomAnchorIndex)
     }
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp),
@@ -749,6 +750,9 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
                         },
                     )
                 }
+                item(key = "chat-bottom-anchor") {
+                    Spacer(Modifier.height(1.dp))
+                }
             }
             AnimatedVisibility(
                 visible = showScrollToBottom,
@@ -760,11 +764,10 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
             ) {
                 SmallFloatingActionButton(
                     onClick = {
-                        val targetIndex = messages.lastIndex
-                        if (targetIndex >= 0) {
+                        if (messages.isNotEmpty()) {
                             actionMessageId = null
                             autoFollow = true
-                            chatScope.launch { listState.animateScrollToItem(targetIndex) }
+                            chatScope.launch { listState.animateScrollToItem(bottomAnchorIndex) }
                         }
                     },
                 ) {
