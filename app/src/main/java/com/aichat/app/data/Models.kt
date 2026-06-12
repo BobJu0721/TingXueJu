@@ -153,6 +153,7 @@ data class ConversationEntity(
     val summary: String = "",
     val summaryThroughAt: Long = 0,
     val backgroundImagePath: String = "",
+    val messageBubbleOpacity: Float = 1f,
 )
 
 @Entity(

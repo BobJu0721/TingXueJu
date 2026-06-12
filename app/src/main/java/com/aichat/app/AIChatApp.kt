@@ -1,10 +1,15 @@
 package com.aichat.app
 
 import android.graphics.BitmapFactory
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +33,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -42,6 +49,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
@@ -67,6 +75,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -103,6 +113,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.aichat.app.data.AppLanguage
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.ConversationEntity
@@ -113,7 +126,10 @@ import com.aichat.app.data.Provider
 import com.aichat.app.data.WorldEntryEntity
 import com.aichat.app.data.WorldSetEntity
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
+import kotlin.math.roundToInt
 
 private val DOCUMENT_TYPES = arrayOf(
     "text/plain",
@@ -124,46 +140,72 @@ private val DOCUMENT_TYPES = arrayOf(
 
 private val ROOT_SCREENS = setOf(Screen.CONVERSATIONS, Screen.CHARACTERS, Screen.LIBRARY, Screen.SETTINGS)
 
+private object AppRoute {
+    const val HOME = "home"
+    const val CHAT = "chat"
+    const val MODELS = "models"
+    const val PROFILE_EDIT = "profile_edit"
+    const val WORLD_SETS = "world_sets"
+    const val WORLD_SET_EDIT = "world_set_edit"
+    const val NEW_CHAT = "new_chat"
+    const val CHAT_INFO = "chat_info"
+}
+
 @Composable
 fun AIChatApp(viewModel: MainViewModel) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val screen by viewModel.screen.collectAsStateWithLifecycle()
+    val navigationVersion by viewModel.navigationVersion.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val showUnsafeWarning by viewModel.showUnsafeHttpWarning.collectAsStateWithLifecycle()
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val pendingImport by viewModel.pendingImport.collectAsStateWithLifecycle()
     val isImporting by viewModel.isImporting.collectAsStateWithLifecycle()
     val language = settings.language
+    val navController = rememberNavController()
+    var selectedRoot by remember { mutableStateOf(Screen.CONVERSATIONS) }
     LaunchedEffect(notice) { if (notice != null) viewModel.clearNotice() }
-    BackHandler(enabled = screen !in ROOT_SCREENS) {
+
+    LaunchedEffect(screen, navigationVersion) {
         when (screen) {
-            Screen.CHAT, Screen.NEW_CHAT -> viewModel.openConversations()
-            Screen.CHAT_INFO, Screen.MODELS -> viewModel.openCurrentChat()
-            Screen.PROFILE_EDIT -> {
-                val draft = viewModel.editingProfile.value
-                if (draft?.type == ProfileType.PERSONA) viewModel.openLibrary() else viewModel.openCharacters()
+            in ROOT_SCREENS -> {
+                selectedRoot = screen
+                navController.navigate(AppRoute.HOME) {
+                    popUpTo(AppRoute.HOME)
+                    launchSingleTop = true
+                }
             }
-            Screen.WORLD_SETS -> viewModel.openLibrary()
-            Screen.WORLD_SET_EDIT -> viewModel.openWorldSets()
+            Screen.CHAT -> {
+                if (!navController.popBackStack(AppRoute.CHAT, inclusive = false)) {
+                    navController.navigate(AppRoute.CHAT) { launchSingleTop = true }
+                }
+            }
+            Screen.MODELS -> navController.navigate(AppRoute.MODELS) { launchSingleTop = true }
+            Screen.PROFILE_EDIT -> navController.navigate(AppRoute.PROFILE_EDIT) { launchSingleTop = true }
+            Screen.WORLD_SETS -> navController.navigate(AppRoute.WORLD_SETS) { launchSingleTop = true }
+            Screen.WORLD_SET_EDIT -> navController.navigate(AppRoute.WORLD_SET_EDIT) { launchSingleTop = true }
+            Screen.NEW_CHAT -> navController.navigate(AppRoute.NEW_CHAT) { launchSingleTop = true }
+            Screen.CHAT_INFO -> navController.navigate(AppRoute.CHAT_INFO) { launchSingleTop = true }
             else -> Unit
         }
     }
 
     MaterialTheme(colorScheme = if (settings.darkTheme) darkColorScheme() else lightColorScheme()) {
-        Scaffold { outer ->
-            Box(Modifier.padding(outer)) {
-                when (screen) {
-                    Screen.CONVERSATIONS, Screen.CHARACTERS, Screen.LIBRARY, Screen.SETTINGS ->
-                        RootPager(viewModel, screen, settings, language)
-                    Screen.CHAT -> ChatScreen(viewModel, language)
-                    Screen.MODELS -> ModelsScreen(viewModel, settings.model, language)
-                    Screen.PROFILE_EDIT -> ProfileEditScreen(viewModel, language)
-                    Screen.WORLD_SETS -> WorldSetsScreen(viewModel, language)
-                    Screen.WORLD_SET_EDIT -> WorldSetEditScreen(viewModel, language)
-                    Screen.NEW_CHAT -> NewChatScreen(viewModel, language)
-                    Screen.CHAT_INFO -> ChatInfoScreen(viewModel, language)
+        Box(Modifier.fillMaxSize()) {
+            NavHost(navController = navController, startDestination = AppRoute.HOME) {
+                composable(AppRoute.HOME) {
+                    RootPager(viewModel, selectedRoot, settings, language) { selectedRoot = it }
                 }
-                if (isImporting) LoadingOverlay(language.pick("AI 正在整理文件...", "AI 正在整理文件..."))
+                composable(AppRoute.CHAT) { ChatScreen(viewModel, language) }
+                composable(AppRoute.MODELS) { ModelsScreen(viewModel, settings.model, language) }
+                composable(AppRoute.PROFILE_EDIT) { ProfileEditScreen(viewModel, language) }
+                composable(AppRoute.WORLD_SETS) { WorldSetsScreen(viewModel, language) }
+                composable(AppRoute.WORLD_SET_EDIT) { WorldSetEditScreen(viewModel, language) }
+                composable(AppRoute.NEW_CHAT) { NewChatScreen(viewModel, language) }
+                composable(AppRoute.CHAT_INFO) { ChatInfoScreen(viewModel, language) }
+            }
+            if (isImporting) {
+                LoadingOverlay(language.pick("AI 正在整理文件...", "AI 正在整理文件..."))
             }
         }
         error?.let { current ->
@@ -203,6 +245,7 @@ private fun RootPager(
     selected: Screen,
     settings: AppSettings,
     language: AppLanguage,
+    onRootSelected: (Screen) -> Unit,
 ) {
     val roots = listOf(Screen.CONVERSATIONS, Screen.CHARACTERS, Screen.LIBRARY, Screen.SETTINGS)
     val selectedPage = roots.indexOf(selected).coerceAtLeast(0)
@@ -221,7 +264,7 @@ private fun RootPager(
         snapshotFlow { pagerState.currentPage to programmaticTargetPage }.collect { (page, targetPage) ->
             if (targetPage != null) return@collect
             val target = roots[page]
-            if (target != currentSelected) viewModel.openRootScreen(target)
+            if (target != currentSelected) onRootSelected(target)
         }
     }
     Scaffold(
@@ -231,7 +274,7 @@ private fun RootPager(
                 if (targetPage < 0) return@RootBottomBar
                 scope.launch {
                     if (pagerState.currentPage != targetPage) pagerState.animateScrollToPage(targetPage)
-                    viewModel.openRootScreen(target)
+                    onRootSelected(target)
                 }
             }
         },
@@ -283,6 +326,7 @@ private fun CompactTopBar(
     title: String,
     subtitle: String? = null,
     navigationIcon: (@Composable () -> Unit)? = null,
+    onTitleClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Surface(Modifier.fillMaxWidth(), shadowElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
@@ -291,7 +335,8 @@ private fun CompactTopBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (navigationIcon != null) navigationIcon() else Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+            val titleModifier = if (onTitleClick != null) Modifier.weight(1f).clickable(onClick = onTitleClick) else Modifier.weight(1f)
+            Column(titleModifier, verticalArrangement = Arrangement.Center) {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -624,13 +669,29 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
     val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
     val selectedId by viewModel.selectedConversationId.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    val chatScope = rememberCoroutineScope()
     var lastOpenedId by remember { mutableStateOf<String?>(null) }
     var autoFollow by remember { mutableStateOf(true) }
+    var showScrollToBottom by remember { mutableStateOf(false) }
     var actionMessageId by remember(selectedId) { mutableStateOf<String?>(null) }
+    var renameDialogVisible by remember(selectedId) { mutableStateOf(false) }
+    var renameText by remember(selectedId, conversation?.title) { mutableStateOf(conversation?.title.orEmpty()) }
     val contextMap = remember(contexts) { contexts.associate { it.messageId to jsonStrings(it.activatedWorldEntriesJson) } }
     LaunchedEffect(listState, messages.size) {
-        snapshotFlow { listState.isNearBottom(messages.lastIndex) }
-            .collect { autoFollow = it }
+        snapshotFlow {
+            Triple(
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+                listState.isScrollInProgress,
+            )
+        }.collect { (_, _, isScrolling) ->
+            if (isScrolling) autoFollow = listState.isNearBottom(messages.lastIndex)
+        }
+    }
+    LaunchedEffect(listState, messages.size) {
+        snapshotFlow { messages.isNotEmpty() && !listState.isNearBottom(messages.lastIndex) }
+            .distinctUntilChanged()
+            .collect { showScrollToBottom = it }
     }
     LaunchedEffect(selectedId, messages.size) {
         if (selectedId != null && selectedId != lastOpenedId && messages.isNotEmpty()) {
@@ -639,16 +700,20 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
             lastOpenedId = selectedId
         }
     }
-    LaunchedEffect(messages.lastOrNull()?.id, messages.lastOrNull()?.content) {
-        if (messages.isNotEmpty() && autoFollow) listState.animateScrollToItem(messages.lastIndex)
+    LaunchedEffect(messages.lastOrNull()?.id, messages.lastOrNull()?.content, autoFollow) {
+        if (messages.isNotEmpty() && autoFollow) listState.scrollToItem(messages.lastIndex)
     }
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
             CompactTopBar(
-                title = language.pick("聽雪居", "听雪居"),
+                title = conversation?.title?.ifBlank { null } ?: language.pick("聽雪居", "听雪居"),
                 subtitle = settings.model,
                 navigationIcon = { Back(language, viewModel::openConversations) },
+                onTitleClick = {
+                    renameText = conversation?.title.orEmpty()
+                    renameDialogVisible = conversation != null
+                },
                 actions = {
                     IconButton(onClick = viewModel::openChatInfo) { Icon(Icons.Default.Info, language.pick("對話資訊", "对话信息")) }
                     IconButton(onClick = viewModel::openModels) { Icon(Icons.Default.Tune, language.pick("選擇模型", "选择模型")) }
@@ -663,7 +728,7 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
             else LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(10.dp),
+                contentPadding = PaddingValues(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 26.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(messages, key = { it.id }) { message ->
@@ -671,6 +736,7 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
                         message = message,
                         worldHits = contextMap[message.id].orEmpty(),
                         language = language,
+                        bubbleOpacity = conversation?.messageBubbleOpacity ?: 1f,
                         actionsVisible = actionMessageId == message.id,
                         onToggleActions = {
                             actionMessageId = if (actionMessageId == message.id) null else message.id
@@ -683,7 +749,55 @@ private fun ChatScreen(viewModel: MainViewModel, language: AppLanguage) {
                     )
                 }
             }
+            AnimatedVisibility(
+                visible = showScrollToBottom,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 16.dp),
+                enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+            ) {
+                SmallFloatingActionButton(
+                    onClick = {
+                        val targetIndex = messages.lastIndex
+                        if (targetIndex >= 0) {
+                            actionMessageId = null
+                            autoFollow = true
+                            chatScope.launch { listState.animateScrollToItem(targetIndex) }
+                        }
+                    },
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, language.pick("回到底部", "回到底部"))
+                }
+            }
         }
+    }
+    if (renameDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { renameDialogVisible = false },
+            title = { Text(language.pick("重新命名對話", "重新命名对话")) },
+            text = {
+                OutlinedTextField(
+                    renameText,
+                    { renameText = it },
+                    Modifier.fillMaxWidth(),
+                    label = { Text(language.pick("對話名稱", "对话名称")) },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.renameConversation(renameText)
+                        renameDialogVisible = false
+                    },
+                    enabled = renameText.isNotBlank(),
+                ) { Text(language.pick("儲存", "保存")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameDialogVisible = false }) { Text(language.pick("取消", "取消")) }
+            },
+        )
     }
 }
 
@@ -705,10 +819,12 @@ private fun MessageComposer(input: String, streaming: Boolean, language: AppLang
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun MessageBubble(
     message: MessageEntity,
     worldHits: List<String>,
     language: AppLanguage,
+    bubbleOpacity: Float,
     actionsVisible: Boolean,
     onToggleActions: () -> Unit,
     onEdit: (String, String) -> Unit,
@@ -720,12 +836,25 @@ private fun MessageBubble(
     var editText by remember(message.id, message.content) { mutableStateOf(message.content) }
     val user = message.role == "user"
     val canShowActions = message.content.isNotBlank()
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(actionsVisible, canShowActions) {
+        if (actionsVisible && canShowActions) {
+            yield()
+            bringIntoViewRequester.bringIntoView()
+        }
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester),
+        horizontalAlignment = if (user) Alignment.End else Alignment.Start,
+    ) {
+        val bubbleColor = if (user) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
         Card(
             Modifier
                 .fillMaxWidth(if (user) .86f else .96f)
                 .clickable(enabled = canShowActions, onClick = onToggleActions),
-            colors = CardDefaults.cardColors(containerColor = if (user) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer),
+            colors = CardDefaults.cardColors(containerColor = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f))),
         ) {
             Column(Modifier.padding(12.dp)) {
                 if (message.content.isBlank()) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else SelectionContainer { MarkdownText(message.content) }
@@ -780,6 +909,9 @@ private fun ChatInfoScreen(viewModel: MainViewModel, language: AppLanguage) {
     val isSummarizing by viewModel.isSummarizingConversation.collectAsStateWithLifecycle()
     val countMap = remember(entryCounts) { entryCounts.associate { it.worldSetId to it.count } }
     val current = conversation ?: return
+    var bubbleTransparency by remember(current.id, current.messageBubbleOpacity) {
+        mutableStateOf(1f - current.messageBubbleOpacity.coerceIn(0.35f, 1f))
+    }
     var summaryMode by remember(current.id) { mutableStateOf(ManualSummaryMode.UN_SUMMARIZED) }
     var keepRecentText by remember(current.id) { mutableStateOf("20") }
     var summaryModeMenu by remember { mutableStateOf(false) }
@@ -806,6 +938,26 @@ private fun ChatInfoScreen(viewModel: MainViewModel, language: AppLanguage) {
                 }
                 Text(
                     if (current.backgroundImagePath.isBlank()) language.pick("目前使用預設背景。", "目前使用默认背景。") else language.pick("已設定自訂背景圖。", "已设置自定义背景图。"),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    language.pick(
+                        "對話框透明度：${(bubbleTransparency * 100).roundToInt()}%",
+                        "对话框透明度：${(bubbleTransparency * 100).roundToInt()}%",
+                    ),
+                    modifier = Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Slider(
+                    value = bubbleTransparency,
+                    onValueChange = { bubbleTransparency = it },
+                    valueRange = 0f..0.65f,
+                    onValueChangeFinished = {
+                        viewModel.updateMessageBubbleOpacity(1f - bubbleTransparency)
+                    },
+                )
+                Text(
+                    language.pick("越高越透明，最低仍保留可讀性。", "越高越透明，最低仍保留可读性。"),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -960,10 +1112,12 @@ private fun ChatBackground(path: String, darkTheme: Boolean) {
     }
 }
 
-private fun LazyListState.isNearBottom(lastIndex: Int): Boolean {
-    if (lastIndex <= 0) return true
-    val visibleLast = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return true
-    return visibleLast >= lastIndex - 1
+private fun LazyListState.isNearBottom(lastIndex: Int, thresholdPx: Int = 96): Boolean {
+    if (lastIndex < 0) return true
+    val visibleLast = layoutInfo.visibleItemsInfo.lastOrNull() ?: return true
+    if (visibleLast.index < lastIndex) return false
+    val itemBottom = visibleLast.offset + visibleLast.size
+    return itemBottom <= layoutInfo.viewportEndOffset + thresholdPx
 }
 
 @Composable

@@ -93,6 +93,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _screen = MutableStateFlow(Screen.CONVERSATIONS)
     val screen = _screen.asStateFlow()
+    private val _navigationVersion = MutableStateFlow(0)
+    val navigationVersion = _navigationVersion.asStateFlow()
     private val _input = MutableStateFlow("")
     val input = _input.asStateFlow()
     private val _isStreaming = MutableStateFlow(false)
@@ -138,19 +140,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun text(traditional: String, simplified: String): String =
         settings.value.language.pick(traditional, simplified)
 
+    private fun showScreen(target: Screen) {
+        _screen.value = target
+        _navigationVersion.value += 1
+    }
+
     fun setInput(value: String) { _input.value = value }
-    fun openConversations() { _screen.value = Screen.CONVERSATIONS }
-    fun openCharacters() { _screen.value = Screen.CHARACTERS }
-    fun openLibrary() { _screen.value = Screen.LIBRARY }
-    fun openWorldSets() { _screen.value = Screen.WORLD_SETS }
-    fun openSettings() { _screen.value = Screen.SETTINGS }
+    fun openConversations() { showScreen(Screen.CONVERSATIONS) }
+    fun openCharacters() { showScreen(Screen.CHARACTERS) }
+    fun openLibrary() { showScreen(Screen.LIBRARY) }
+    fun openWorldSets() { showScreen(Screen.WORLD_SETS) }
+    fun openSettings() { showScreen(Screen.SETTINGS) }
     fun openRootScreen(screen: Screen) {
         if (screen in listOf(Screen.CONVERSATIONS, Screen.CHARACTERS, Screen.LIBRARY, Screen.SETTINGS)) {
-            _screen.value = screen
+            showScreen(screen)
         }
     }
-    fun openCurrentChat() { _screen.value = Screen.CHAT }
-    fun openModels() { _screen.value = Screen.MODELS; refreshModels() }
+    fun openCurrentChat() { showScreen(Screen.CHAT) }
+    fun openModels() { showScreen(Screen.MODELS); refreshModels() }
     fun clearError() { _error.value = null }
     fun clearNotice() { _notice.value = null }
     private fun showNotice(message: String) { /* Notices are intentionally disabled. */ }
@@ -158,7 +165,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun selectConversation(id: String) {
         _selectedConversationId.value = id
         viewModelScope.launch { _selectedConversation.value = dao.getConversation(id) }
-        _screen.value = Screen.CHAT
+        showScreen(Screen.CHAT)
     }
 
     fun deleteConversation(conversation: ConversationEntity) {
@@ -174,7 +181,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _newChatGreeting.value = _newChatCharacter.value?.greeting.orEmpty()
             _newChatPersonaId.value = null
             _newChatWorldSetIds.value = emptySet()
-            _screen.value = Screen.NEW_CHAT
+            showScreen(Screen.NEW_CHAT)
         }
     }
 
@@ -205,14 +212,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             _selectedConversationId.value = conversation.id
             _selectedConversation.value = conversation
-            _screen.value = Screen.CHAT
+            showScreen(Screen.CHAT)
         }
     }
 
     fun openChatInfo() {
         val id = _selectedConversationId.value ?: return
         viewModelScope.launch { _selectedConversation.value = dao.getConversation(id) }
-        _screen.value = Screen.CHAT_INFO
+        showScreen(Screen.CHAT_INFO)
     }
 
     fun updateConversationPersona(id: String?) {
@@ -241,6 +248,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             dao.updateConversation(updated)
             _selectedConversation.value = updated
             showNotice(text("摘要已儲存", "摘要已保存"))
+        }
+    }
+
+    fun renameConversation(title: String) {
+        val conversation = _selectedConversation.value ?: return
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank() || cleanTitle == conversation.title) return
+        viewModelScope.launch {
+            val updated = conversation.copy(title = cleanTitle, updatedAt = System.currentTimeMillis())
+            dao.updateConversation(updated)
+            _selectedConversation.value = updated
         }
     }
 
@@ -280,6 +298,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateMessageBubbleOpacity(opacity: Float) {
+        val conversation = _selectedConversation.value ?: return
+        val cleanOpacity = opacity.coerceIn(0.35f, 1f)
+        if (cleanOpacity == conversation.messageBubbleOpacity) return
+        viewModelScope.launch {
+            val updated = conversation.copy(messageBubbleOpacity = cleanOpacity)
+            dao.updateConversation(updated)
+            _selectedConversation.value = updated
+        }
+    }
+
     private suspend fun setConversationWorldSets(conversationId: String, ids: Set<String>) {
         dao.clearConversationWorldSets(conversationId)
         if (ids.isNotEmpty()) dao.addConversationWorldSets(ids.map { ConversationWorldSetEntity(conversationId, it) })
@@ -287,12 +316,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun newProfile(type: ProfileType) {
         _editingProfile.value = ProfileDraft(type = type)
-        _screen.value = Screen.PROFILE_EDIT
+        showScreen(Screen.PROFILE_EDIT)
     }
 
     fun editProfile(profile: ProfileEntity) {
         _editingProfile.value = profile.toDraft()
-        _screen.value = Screen.PROFILE_EDIT
+        showScreen(Screen.PROFILE_EDIT)
     }
 
     fun saveProfile(draft: ProfileDraft) {
@@ -324,7 +353,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ),
             )
             showNotice(text("設定已儲存", "设置已保存"))
-            _screen.value = if (draft.type == ProfileType.CHARACTER) Screen.CHARACTERS else Screen.LIBRARY
+            showScreen(if (draft.type == ProfileType.CHARACTER) Screen.CHARACTERS else Screen.LIBRARY)
         }
     }
 
@@ -342,13 +371,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             dao.upsertWorldSet(worldSet)
             _editingWorldSet.value = worldSet
-            _screen.value = Screen.WORLD_SET_EDIT
+            showScreen(Screen.WORLD_SET_EDIT)
         }
     }
 
     fun editWorldSet(worldSet: WorldSetEntity) {
         _editingWorldSet.value = worldSet
-        _screen.value = Screen.WORLD_SET_EDIT
+        showScreen(Screen.WORLD_SET_EDIT)
     }
 
     fun saveWorldSet(name: String, overview: String, scanDepth: Int) {
@@ -414,7 +443,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             _editingWorldSet.value = worldSet
-            _screen.value = Screen.WORLD_SET_EDIT
+            showScreen(Screen.WORLD_SET_EDIT)
         }
     }
 
@@ -449,7 +478,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } else null
                     if (directDraft != null) {
                         _editingProfile.value = directDraft
-                        _screen.value = Screen.PROFILE_EDIT
+                        showScreen(Screen.PROFILE_EDIT)
                         showNotice(text("已讀取 JSON，請確認內容", "已读取 JSON，请确认内容"))
                     } else {
                         _pendingImport.value = PendingDocumentImport(target, document)
@@ -481,7 +510,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 when (pending.target) {
                     ImportTarget.CHARACTER, ImportTarget.PERSONA -> {
                         _editingProfile.value = organizeProfile(pending.document.text, pending.target.profileType()!!, current, apiKey)
-                        _screen.value = Screen.PROFILE_EDIT
+                        showScreen(Screen.PROFILE_EDIT)
                     }
                     ImportTarget.WORLD_SET -> {
                         val draft = organizeWorldSet(pending.document.text, current, apiKey)
@@ -552,7 +581,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         _editingWorldSet.value = worldSet
-        _screen.value = Screen.WORLD_SET_EDIT
+        showScreen(Screen.WORLD_SET_EDIT)
         showNotice(text("AI 已整理世界設定，請確認內容", "AI 已整理世界设定，请确认内容"))
     }
 
@@ -783,7 +812,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             settingsRepository.save(AppSettings(provider, baseUrl.trim(), model.ifBlank { provider.defaultModel }.trim(), darkTheme, language))
             if (apiKey.isNotBlank()) secretStore.put(provider, apiKey.trim())
             showNotice(language.pick("設定已儲存", "设置已保存"))
-            _screen.value = Screen.CONVERSATIONS
+            showScreen(Screen.CONVERSATIONS)
         }
     }
     fun currentApiKey(provider: Provider): String = secretStore.get(provider)
@@ -811,7 +840,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             settingsRepository.save(settings.value.copy(model = model))
             showNotice(settings.value.language.pick("已選擇 $model", "已选择 $model"))
-            _screen.value = Screen.CHAT
+            showScreen(Screen.CHAT)
         }
     }
 

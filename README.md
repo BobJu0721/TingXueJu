@@ -1,13 +1,15 @@
 # 聽雪居
 
-聽雪居是一個 Android 12+ 原生 AI 聊天 App。專案目前只支援 Android
+聽雪居是一個 Android 12+ 原生 AI 聊天 App。專案目前只支援 Android，主要用於自用與測試。
 
 ## 最新下載
 
-- [v1.3](apk/TingXueJu-v1.3-debug.apk)
+- [v1.5](apk/TingXueJu-v1.5-debug.apk)
   
 歷史版本 APK：
 
+- [v1.4](apk/TingXueJu-v1.4-debug.apk)
+- [v1.3](apk/TingXueJu-v1.3-debug.apk)
 - [v1.2](apk/TingXueJu-v1.2-debug.apk)
 - [v1.1](apk/TingXueJu-v1.1-debug.apk)
 - [v1.0](apk/TingXueJu-v1.0-debug.apk)
@@ -24,6 +26,7 @@
 - 角色與 Persona 支援分段表單，並可從 TXT、JSON、DOCX 文件交給 AI 整理成草稿。
 - 世界設定集支援關鍵詞觸發與常駐條目。（還沒弄好）
 - 長對話遇到上下文過長時，可自動摘要舊內容後重試。
+- 聊天頁支援對話命名、回到底部快捷按鈕、背景圖與對話框透明度調整。
 - API Key 使用 Android Keystore 保存，並停用 Android 自動備份。
 
 ## 建置
