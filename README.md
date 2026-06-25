@@ -2,11 +2,8 @@
 
 聽雪居是一個 Android 12+ 原生 AI 聊天 App。專案目前只支援 Android，主要用於自用與測試。
 
-## 最新下載
+## 最新下載與歷史版本
 
-- [下載最新版 APK](https://github.com/BobJu0721/TingXueJu/releases)
-  
-歷史版本與更新公告：
 
 - [GitHub Releases](https://github.com/BobJu0721/TingXueJu/releases)
 
