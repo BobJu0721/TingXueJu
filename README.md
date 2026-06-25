@@ -4,17 +4,11 @@
 
 ## 最新下載
 
-- [v1.7](apk/TingXueJu-v1.7-debug.apk)
+- [下載最新版 APK](https://github.com/BobJu0721/TingXueJu/releases/latest)
   
-歷史版本 APK：
+歷史版本與更新公告：
 
-- [v1.6](apk/TingXueJu-v1.6-debug.apk)
-- [v1.5](apk/TingXueJu-v1.5-debug.apk)
-- [v1.4](apk/TingXueJu-v1.4-debug.apk)
-- [v1.3](apk/TingXueJu-v1.3-debug.apk)
-- [v1.2](apk/TingXueJu-v1.2-debug.apk)
-- [v1.1](apk/TingXueJu-v1.1-debug.apk)
-- [v1.0](apk/TingXueJu-v1.0-debug.apk)
+- [GitHub Releases](https://github.com/BobJu0721/TingXueJu/releases)
 
 更新公告：
 
@@ -54,7 +48,6 @@ app/build/outputs/apk/debug/app-debug.apk
 ## 注意
 
 - Debug APK 適合自用與測試，不適合作為正式發布版本。
-- GitHub 內的 `apk/TingXueJu-debug.apk` 會放目前最新 debug APK。
-- `apk/TingXueJu-vX.X-debug.apk` 會保留每一版 APK。
+- GitHub Releases 會放每一版 debug APK 與更新公告。
 - 本機資料解除安裝後會刪除。
 - 自訂 HTTP 端點可使用，但 API Key 與聊天內容可能外洩，建議使用 HTTPS。
