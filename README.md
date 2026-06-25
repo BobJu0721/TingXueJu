@@ -4,7 +4,7 @@
 
 ## 最新下載
 
-- [下載最新版 APK](https://github.com/BobJu0721/TingXueJu/releases/latest)
+- [下載最新版 APK](https://github.com/BobJu0721/TingXueJu/releases)
   
 歷史版本與更新公告：
 
