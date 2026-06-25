@@ -24,6 +24,7 @@ class ConversationRepository(private val dao: ChatDao) {
         dao.deleteMessagesAtOrAfter(conversationId, createdAt)
 
     suspend fun upsertGenerationContext(context: GenerationContextEntity) = dao.upsertGenerationContext(context)
+    suspend fun clearReasoningContent(messageId: String) = dao.clearReasoningContent(messageId)
 
     suspend fun getConversationWorldSetIds(conversationId: String): List<String> =
         dao.getConversationWorldSetIds(conversationId)

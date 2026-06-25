@@ -140,6 +140,7 @@ data class ConversationWorldSetEntity(
 data class GenerationContextEntity(
     @PrimaryKey val messageId: String,
     val activatedWorldEntriesJson: String = "[]",
+    val reasoningContent: String = "",
 )
 
 @Entity(tableName = "conversations")

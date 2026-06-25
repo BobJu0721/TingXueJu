@@ -212,6 +212,7 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
             val message = conversationRepository.getMessage(messageId) ?: return@launch
             val conversation = conversationRepository.getConversation(message.conversationId) ?: return@launch
             conversationRepository.updateMessage(message.copy(content = trimmed))
+            if (message.role == "assistant") conversationRepository.clearReasoningContent(message.id)
             conversationRepository.updateConversation(
                 conversation.copy(
                     updatedAt = System.currentTimeMillis(),

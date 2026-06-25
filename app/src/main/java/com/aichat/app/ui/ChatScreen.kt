@@ -60,7 +60,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
     var actionMessageId by remember(selectedId) { mutableStateOf<String?>(null) }
     var renameDialogVisible by remember(selectedId) { mutableStateOf(false) }
     var renameText by remember(selectedId, conversation?.title) { mutableStateOf(conversation?.title.orEmpty()) }
-    val contextMap = remember(contexts) { contexts.associate { it.messageId to jsonStrings(it.activatedWorldEntriesJson) } }
+    val contextMap = remember(contexts) { contexts.associateBy { it.messageId } }
     val bottomAnchorIndex = messages.size
     LaunchedEffect(listState, messages.size) {
         snapshotFlow {
@@ -119,7 +119,8 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
                 items(messages, key = { it.id }) { message ->
                     MessageBubble(
                         message = message,
-                        worldHits = contextMap[message.id].orEmpty(),
+                        worldHits = contextMap[message.id]?.let { jsonStrings(it.activatedWorldEntriesJson) }.orEmpty(),
+                        reasoningContent = contextMap[message.id]?.reasoningContent.orEmpty(),
                         language = language,
                         bubbleOpacity = conversation?.messageBubbleOpacity ?: 1f,
                         actionsVisible = actionMessageId == message.id,
@@ -212,6 +213,7 @@ private fun MessageComposer(input: String, streaming: Boolean, language: AppLang
 private fun MessageBubble(
     message: MessageEntity,
     worldHits: List<String>,
+    reasoningContent: String,
     language: AppLanguage,
     bubbleOpacity: Float,
     actionsVisible: Boolean,
@@ -220,10 +222,12 @@ private fun MessageBubble(
     onResend: (String) -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
-    var expanded by remember { mutableStateOf(false) }
+    var reasoningExpanded by remember(message.id) { mutableStateOf(false) }
+    var worldInfoExpanded by remember(message.id) { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var editText by remember(message.id, message.content) { mutableStateOf(message.content) }
     val user = message.role == "user"
+    val reasoning = if (user) "" else reasoningContent.trim()
     val canShowActions = message.content.isNotBlank()
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     LaunchedEffect(actionsVisible, canShowActions) {
@@ -246,10 +250,32 @@ private fun MessageBubble(
             colors = CardDefaults.cardColors(containerColor = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f))),
         ) {
             Column(Modifier.padding(12.dp)) {
+                if (reasoning.isNotBlank()) {
+                    TextButton(onClick = { reasoningExpanded = !reasoningExpanded }) {
+                        Icon(
+                            if (reasoningExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text("思考內容")
+                    }
+                    if (reasoningExpanded) {
+                        SelectionContainer {
+                            Text(reasoning, style = MaterialTheme.typography.bodySmall)
+                        }
+                        TextButton(onClick = { clipboard.setText(AnnotatedString(reasoning)) }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("複製思考內容")
+                        }
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                }
                 if (message.content.isBlank()) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else SelectionContainer { MarkdownText(message.content) }
                 if (worldHits.isNotEmpty()) {
-                    TextButton(onClick = { expanded = !expanded }) { Text(language.pick("世界設定命中 ${worldHits.size} 條", "世界设定命中 ${worldHits.size} 条")) }
-                    if (expanded) Text(worldHits.joinToString("\n") { "• $it" }, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { worldInfoExpanded = !worldInfoExpanded }) { Text(language.pick("世界設定命中 ${worldHits.size} 條", "世界设定命中 ${worldHits.size} 条")) }
+                    if (worldInfoExpanded) Text(worldHits.joinToString("\n") { "• $it" }, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

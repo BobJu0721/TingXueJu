@@ -31,7 +31,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,7 +58,7 @@ internal fun SettingsScreen(viewModel: SettingsViewModel, onRootSelected: (Scree
             Box { OutlinedButton(onClick = { menu = true }) { Text(if (provider == Provider.CUSTOM) lang.pick("自訂端點", "自定义端点") else provider.label) }; DropdownMenu(menu, { menu = false }) { Provider.entries.forEach { option -> DropdownMenuItem({ Text(if (option == Provider.CUSTOM) lang.pick("自訂端點", "自定义端点") else option.label) }, { provider = option; menu = false }) } } }
             if (provider == Provider.CUSTOM) OutlinedTextField(base, { base = it }, Modifier.fillMaxWidth(), label = { Text("Base URL") }, supportingText = { Text(lang.pick("HTTP 可以使用，但傳送前會警告可能外洩。", "HTTP 可以使用，但发送前会警告可能外泄。")) })
             else Text(provider.baseUrl, style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(key, { key = it }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text(if (viewModel.currentApiKey(provider).isBlank()) lang.pick("填入 API Key", "填入 API Key") else lang.pick("已保存；留白可沿用", "已保存；留白可沿用")) }, visualTransformation = PasswordVisualTransformation())
+            OutlinedTextField(key, { key = it }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text(if (viewModel.currentApiKey(provider).isBlank()) lang.pick("填入 API Key", "填入 API Key") else lang.pick("已保存；留白可沿用", "已保存；留白可沿用")) })
             OutlinedTextField(model, { model = it }, Modifier.fillMaxWidth(), label = { Text(lang.pick("模型 ID", "模型 ID")) })
             Text(lang.pick("介面語言", "界面语言"), fontWeight = FontWeight.Bold)
             Box {

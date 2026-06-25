@@ -62,6 +62,9 @@ interface ChatDao {
     @Upsert
     suspend fun upsertGenerationContext(context: GenerationContextEntity)
 
+    @Query("UPDATE generation_contexts SET reasoningContent = '' WHERE messageId = :messageId")
+    suspend fun clearReasoningContent(messageId: String)
+
     @Query("SELECT * FROM profiles WHERE type = :type ORDER BY updatedAt DESC")
     fun observeProfiles(type: ProfileType): Flow<List<ProfileEntity>>
 
@@ -127,7 +130,7 @@ interface ChatDao {
         ConversationWorldSetEntity::class,
         GenerationContextEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -173,13 +176,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE generation_contexts ADD COLUMN reasoningContent TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "ai-chat.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build().also { instance = it }
             }
     }
 }

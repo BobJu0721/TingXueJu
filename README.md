@@ -4,10 +4,11 @@
 
 ## 最新下載
 
-- [v1.6](apk/TingXueJu-v1.6-debug.apk)
+- [v1.7](apk/TingXueJu-v1.7-debug.apk)
   
 歷史版本 APK：
 
+- [v1.6](apk/TingXueJu-v1.6-debug.apk)
 - [v1.5](apk/TingXueJu-v1.5-debug.apk)
 - [v1.4](apk/TingXueJu-v1.4-debug.apk)
 - [v1.3](apk/TingXueJu-v1.3-debug.apk)

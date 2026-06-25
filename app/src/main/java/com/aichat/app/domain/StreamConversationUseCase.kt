@@ -38,11 +38,23 @@ class StreamConversationUseCase(
         val assistant = MessageEntity(UUID.randomUUID().toString(), conversationId, "assistant", "", System.currentTimeMillis() + 1)
         conversationRepository.upsertMessage(assistant)
         var content = ""
+        var reasoningContent = ""
         try {
-            api.streamChat(settings, key, prompt.messages) { token ->
-                content += token
-                conversationRepository.upsertMessage(assistant.copy(content = content))
-            }
+            api.streamChat(
+                settings = settings,
+                apiKey = key,
+                messages = prompt.messages,
+                onToken = { token ->
+                    content += token
+                    conversationRepository.upsertMessage(assistant.copy(content = content))
+                },
+                onReasoningToken = { token ->
+                    reasoningContent += token
+                    conversationRepository.upsertGenerationContext(
+                        GenerationContextEntity(assistant.id, reasoningContent = reasoningContent),
+                    )
+                },
+            )
             if (content.isBlank()) {
                 throw IOException(settings.language.pick(
                     "\u0041\u0050\u0049 \u6c92\u6709\u56de\u50b3\u6587\u5b57\u5167\u5bb9\u3002",
@@ -50,7 +62,11 @@ class StreamConversationUseCase(
                 ))
             }
             conversationRepository.upsertGenerationContext(
-                GenerationContextEntity(assistant.id, toJsonStrings(prompt.activatedEntries.map { it.title })),
+                GenerationContextEntity(
+                    messageId = assistant.id,
+                    activatedWorldEntriesJson = toJsonStrings(prompt.activatedEntries.map { it.title }),
+                    reasoningContent = reasoningContent,
+                ),
             )
         } catch (_: CancellationException) {
             if (content.isBlank()) conversationRepository.deleteMessage(assistant.id)

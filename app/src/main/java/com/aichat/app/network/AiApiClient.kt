@@ -21,6 +21,11 @@ data class ApiChatMessage(
     val content: String,
 )
 
+internal data class StreamDelta(
+    val content: String = "",
+    val reasoningContent: String = "",
+)
+
 class AiApiClient {
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -50,6 +55,7 @@ class AiApiClient {
         apiKey: String,
         messages: List<ApiChatMessage>,
         onToken: suspend (String) -> Unit,
+        onReasoningToken: suspend (String) -> Unit = {},
     ) = withContext(Dispatchers.IO) {
         val payload = chatPayload(settings, messages, stream = true)
         val request = requestBuilder(settings, apiKey, "${settings.resolvedBaseUrl}/chat/completions")
@@ -70,15 +76,9 @@ class AiApiClient {
                     if (!line.startsWith("data:")) continue
                     val data = line.removePrefix("data:").trim()
                     if (data == "[DONE]") break
-                    val token = runCatching {
-                        JSONObject(data)
-                            .optJSONArray("choices")
-                            ?.optJSONObject(0)
-                            ?.optJSONObject("delta")
-                            ?.optString("content")
-                            .orEmpty()
-                    }.getOrDefault("")
-                    if (token.isNotEmpty()) onToken(token)
+                    val delta = parseStreamDelta(data)
+                    if (delta.content.isNotEmpty()) onToken(delta.content)
+                    if (delta.reasoningContent.isNotEmpty()) onReasoningToken(delta.reasoningContent)
                 }
             }
         } finally {
@@ -147,6 +147,19 @@ class AiApiClient {
                 put("chat_template_kwargs", JSONObject().put("enable_thinking", true))
             }
         }
+
+    internal fun parseStreamDelta(data: String): StreamDelta =
+        runCatching {
+            val delta = JSONObject(data)
+                .optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("delta")
+
+            StreamDelta(
+                content = delta?.opt("content") as? String ?: "",
+                reasoningContent = delta?.opt("reasoning_content") as? String ?: "",
+            )
+        }.getOrDefault(StreamDelta())
 
     private fun errorMessage(body: String): String {
         if (body.isBlank()) return "伺服器沒有提供錯誤細節"
