@@ -1,6 +1,7 @@
 package com.aichat.app.network
 
 import com.aichat.app.data.AppSettings
+import com.aichat.app.data.Provider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -50,14 +51,7 @@ class AiApiClient {
         messages: List<ApiChatMessage>,
         onToken: suspend (String) -> Unit,
     ) = withContext(Dispatchers.IO) {
-        val payload = JSONObject()
-            .put("model", settings.model)
-            .put("stream", true)
-            .put("messages", JSONArray().apply {
-                messages.forEach { message ->
-                    put(JSONObject().put("role", message.role).put("content", message.content))
-                }
-            })
+        val payload = chatPayload(settings, messages, stream = true)
         val request = requestBuilder(settings, apiKey, "${settings.resolvedBaseUrl}/chat/completions")
             .post(payload.toString().toRequestBody(JSON))
             .build()
@@ -136,7 +130,7 @@ class AiApiClient {
                 }
             }
 
-    private fun chatPayload(
+    internal fun chatPayload(
         settings: AppSettings,
         messages: List<ApiChatMessage>,
         stream: Boolean,
@@ -148,6 +142,11 @@ class AiApiClient {
                 put(JSONObject().put("role", message.role).put("content", message.content))
             }
         })
+        .apply {
+            if (settings.provider == Provider.AGNES) {
+                put("chat_template_kwargs", JSONObject().put("enable_thinking", true))
+            }
+        }
 
     private fun errorMessage(body: String): String {
         if (body.isBlank()) return "伺服器沒有提供錯誤細節"

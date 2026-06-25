@@ -6,15 +6,14 @@ import android.view.WindowInsetsController
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         setContent {
-            val viewModel: MainViewModel = viewModel()
-            AIChatApp(viewModel)
+            val factory = AppViewModelFactory((application as AIChatApplication).appContainer)
+            AIChatApp(factory)
         }
         hideNavigationBar()
     }

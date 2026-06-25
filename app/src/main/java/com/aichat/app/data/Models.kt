@@ -13,6 +13,7 @@ enum class Provider(
     OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1", "openrouter/free"),
     GROQ("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
     CEREBRAS("Cerebras", "https://api.cerebras.ai/v1", "llama-3.3-70b"),
+    AGNES("Agnes", "https://apihub.agnes-ai.com/v1", "agnes-2.0-flash"),
     CUSTOM("自訂端點", "", "");
 
     companion object {

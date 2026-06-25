@@ -1,0 +1,113 @@
+package com.aichat.app.ui
+
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.pager.*
+import androidx.compose.foundation.relocation.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aichat.app.*
+import com.aichat.app.data.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
+import kotlin.math.roundToInt
+@Composable
+internal fun ProfilesScreen(viewModel: ProfilesViewModel, onRootSelected: (Screen) -> Unit, type: ProfileType, language: AppLanguage, showBottomBar: Boolean = true) {
+    val profiles by (if (type == ProfileType.CHARACTER) viewModel.characters else viewModel.personas).collectAsStateWithLifecycle()
+    val importTarget = if (type == ProfileType.CHARACTER) ImportTarget.CHARACTER else ImportTarget.PERSONA
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { viewModel.importDocument(it, importTarget) } }
+    val title = if (type == ProfileType.CHARACTER) language.pick("角色", "角色") else "Persona"
+    Scaffold(
+        topBar = { CompactTopBar(title, actions = { IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, language.pick("匯入文件", "导入文件")) } }) },
+        bottomBar = { if (showBottomBar && type == ProfileType.CHARACTER) RootBottomBar(Screen.CHARACTERS, language, onRootSelected) },
+        floatingActionButton = { FloatingActionButton(onClick = { viewModel.newProfile(type) }) { Icon(Icons.Default.Add, language.pick("新增$title", "新增$title")) } },
+    ) { padding ->
+        if (profiles.isEmpty()) EmptyState(language.pick("還沒有$title", "还没有$title"), language.pick("可以手動建立，或從 TXT、JSON、DOCX 文件交給 AI 整理。", "可以手动建立，或从 TXT、JSON、DOCX 文件交给 AI 整理。"), Modifier.padding(padding))
+        else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(profiles, key = { it.id }) { profile -> ProfileRow(profile, type == ProfileType.CHARACTER, viewModel, language) }
+        }
+    }
+}
+
+
+@Composable
+internal fun ProfileRow(profile: ProfileEntity, canChat: Boolean, viewModel: ProfilesViewModel, language: AppLanguage) {
+    Card(Modifier.fillMaxWidth().clickable { viewModel.editProfile(profile) }) {
+        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(profile.name, fontWeight = FontWeight.Bold)
+                if (profile.summary.isNotBlank()) Text(profile.summary, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+            }
+            if (canChat) IconButton(onClick = { viewModel.startChat(profile.id) }) { Icon(Icons.Default.Chat, language.pick("開始聊天", "开始聊天")) }
+            IconButton(onClick = { viewModel.editProfile(profile) }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑")) }
+            IconButton(onClick = { viewModel.deleteProfile(profile) }) { Icon(Icons.Default.Delete, language.pick("刪除", "删除")) }
+        }
+    }
+}
+
+
+@Composable
+internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLanguage) {
+    val source by viewModel.editingProfile.collectAsStateWithLifecycle()
+    val draft = source ?: return
+    var name by remember { mutableStateOf(draft.name) }
+    var summary by remember { mutableStateOf(draft.summary) }
+    var personality by remember { mutableStateOf(draft.personality) }
+    var background by remember { mutableStateOf(draft.background) }
+    var examples by remember { mutableStateOf(draft.exampleDialogue) }
+    var greeting by remember { mutableStateOf(draft.greeting) }
+    var alternates by remember { mutableStateOf(draft.alternateGreetings.joinToString("\n")) }
+    var instructions by remember { mutableStateOf(draft.extraInstructions) }
+    var showHelp by remember { mutableStateOf(false) }
+    val title = if (draft.type == ProfileType.CHARACTER) language.pick("角色設定", "角色设置") else language.pick("Persona 設定", "Persona 设置")
+    Scaffold(topBar = { CompactTopBar(title, navigationIcon = { Back(language) { viewModel.closeProfileEditor(draft.type) } }) }) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("名稱", "名称")) }, supportingText = { Text(language.pick("例如：艾莉亞、本人、第三人稱旁白", "例如：艾莉亚、本人、第三人称旁白")) })
+            OutlinedTextField(summary, { summary = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("簡介", "简介")) }, minLines = 2)
+            OutlinedTextField(personality, { personality = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("個性", "个性")) }, minLines = 3)
+            OutlinedTextField(background, { background = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("背景", "背景")) }, minLines = 4)
+            OutlinedTextField(examples, { examples = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("範例對話", "范例对话")) }, minLines = 3)
+            OutlinedTextField(greeting, { greeting = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("開場白", "开场白")) }, minLines = 3)
+            OutlinedTextField(alternates, { alternates = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("替代開場白", "替代开场白")) }, supportingText = { Text(language.pick("每行一個替代版本", "每行一个替代版本")) }, minLines = 2)
+            OutlinedTextField(instructions, { instructions = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("額外指示", "额外指示")) }, minLines = 2)
+            TextButton(onClick = { showHelp = !showHelp }) { Text(if (showHelp) language.pick("收合填寫示範", "收合填写示范") else language.pick("查看填寫示範", "查看填写示范")) }
+            if (showHelp) Card { Text(language.pick("簡介：一名尋找失落城市的旅行學者。\n個性：冷靜、觀察敏銳，面對熟人會偶爾開玩笑。\n背景：曾在北方學院研究古代文字。\n範例對話：我不會急著下結論，先看看牆上的刻痕。\n開場白：你也注意到這扇門了嗎？", "简介：一名寻找失落城市的旅行学者。\n个性：冷静、观察敏锐，面对熟人会偶尔开玩笑。\n背景：曾在北方学院研究古代文字。\n范例对话：我不会急着下结论，先看看墙上的刻痕。\n开场白：你也注意到这扇门了吗？"), Modifier.padding(12.dp)) }
+            Button(onClick = {
+                viewModel.saveProfile(ProfileDraft(draft.id, draft.type, name, summary, personality, background, examples, greeting, alternates.lines().filter(String::isNotBlank), instructions))
+            }, Modifier.fillMaxWidth()) { Text(language.pick("儲存", "保存")) }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}

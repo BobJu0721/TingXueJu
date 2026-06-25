@@ -14,6 +14,12 @@ class AppSettingsTest {
     }
 
     @Test
+    fun agnesProviderUsesOfficialEndpointAndModel() {
+        assertEquals("https://apihub.agnes-ai.com/v1", Provider.AGNES.baseUrl)
+        assertEquals("agnes-2.0-flash", Provider.AGNES.defaultModel)
+    }
+
+    @Test
     fun customProviderTrimsTrailingSlash() {
         val settings = AppSettings(provider = Provider.CUSTOM, customBaseUrl = "https://example.com/v1/")
 
@@ -31,4 +37,3 @@ class AppSettingsTest {
         assertEquals(Provider.OPENROUTER, Provider.fromId("missing"))
     }
 }
-

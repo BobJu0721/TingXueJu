@@ -61,7 +61,7 @@ fun composePrompt(
             it.createdAt >= conversation.contextStartAt &&
             it.createdAt > conversation.summaryThroughAt
     }
-    val activatedEntries = activateWorldEntries(worldEntries, worldSets, visibleHistory)
+    val activatedEntries = activateWorldEntries(worldEntries, worldSets, history)
     val labels = language.promptLabels()
     val systemText = buildString {
         appendLine(labels.continueConversation)
