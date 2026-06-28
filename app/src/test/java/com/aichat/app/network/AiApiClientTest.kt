@@ -72,6 +72,68 @@ class AiApiClientTest {
     }
 
     @Test
+    fun streamDeltaParserReadsCommonReasoningAliases() {
+        val delta = AiApiClient().parseStreamDelta(
+            """
+            {
+              "choices": [
+                {
+                  "delta": {
+                    "reasoning": "alias thinking"
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("", delta.content)
+        assertEquals("alias thinking", delta.reasoningContent)
+    }
+
+    @Test
+    fun streamDeltaParserReadsProviderSpecificReasoning() {
+        val delta = AiApiClient().parseStreamDelta(
+            """
+            {
+              "choices": [
+                {
+                  "delta": {
+                    "provider_specific_fields": {
+                      "thinking": "provider thinking"
+                    }
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("", delta.content)
+        assertEquals("provider thinking", delta.reasoningContent)
+    }
+
+    @Test
+    fun streamDeltaParserFallsBackToMessageReasoning() {
+        val delta = AiApiClient().parseStreamDelta(
+            """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "thought": "message thinking"
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("", delta.content)
+        assertEquals("message thinking", delta.reasoningContent)
+    }
+
+    @Test
     fun streamDeltaParserIgnoresMalformedPayloads() {
         val delta = AiApiClient().parseStreamDelta("not-json")
 

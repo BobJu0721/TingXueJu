@@ -150,16 +150,30 @@ class AiApiClient {
 
     internal fun parseStreamDelta(data: String): StreamDelta =
         runCatching {
-            val delta = JSONObject(data)
+            val choice = JSONObject(data)
                 .optJSONArray("choices")
                 ?.optJSONObject(0)
-                ?.optJSONObject("delta")
+            val delta = choice?.optJSONObject("delta")
+            val message = choice?.optJSONObject("message")
 
             StreamDelta(
                 content = delta?.opt("content") as? String ?: "",
-                reasoningContent = delta?.opt("reasoning_content") as? String ?: "",
+                reasoningContent = delta.reasoningText().ifBlank { message.reasoningText() },
             )
         }.getOrDefault(StreamDelta())
+
+    private fun JSONObject?.reasoningText(): String {
+        if (this == null) return ""
+        val direct = firstText("reasoning_content", "reasoning", "thinking", "thought")
+        if (direct.isNotBlank()) return direct
+        return optJSONObject("provider_specific_fields")
+            .firstText("reasoning_content", "reasoning", "thinking", "thought")
+    }
+
+    private fun JSONObject?.firstText(vararg keys: String): String {
+        if (this == null) return ""
+        return keys.firstNotNullOfOrNull { key -> (opt(key) as? String)?.takeIf { it.isNotBlank() } }.orEmpty()
+    }
 
     private fun errorMessage(body: String): String {
         if (body.isBlank()) return "伺服器沒有提供錯誤細節"
