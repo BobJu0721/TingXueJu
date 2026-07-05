@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.pager.*
@@ -73,13 +74,22 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage) {
         uri?.let(viewModel::setConversationBackground)
     }
     Scaffold(topBar = { CompactTopBar(language.pick("對話資訊", "对话信息"), navigationIcon = { Back(language, viewModel::openCurrentChat) }) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
+                InfoSection {
                 Text(language.pick("聊天背景", "聊天背景"), fontWeight = FontWeight.Bold)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { backgroundLauncher.launch(arrayOf("image/*")) }, Modifier.weight(1f)) { Text(language.pick("上傳背景圖", "上传背景图")) }
+                    Button(
+                        onClick = { backgroundLauncher.launch(arrayOf("image/*")) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(24.dp),
+                    ) { Text(language.pick("上傳背景圖", "上传背景图")) }
                     if (current.backgroundImagePath.isNotBlank()) {
-                        OutlinedButton(onClick = viewModel::clearConversationBackground, Modifier.weight(1f)) { Text(language.pick("移除背景", "移除背景")) }
+                        OutlinedButton(
+                            onClick = viewModel::clearConversationBackground,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(24.dp),
+                        ) { Text(language.pick("移除背景", "移除背景")) }
                     }
                 }
                 Text(
@@ -98,6 +108,11 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage) {
                     value = bubbleTransparency,
                     onValueChange = { bubbleTransparency = it },
                     valueRange = 0f..0.65f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.onSurface,
+                        activeTrackColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
                     onValueChangeFinished = {
                         viewModel.updateMessageBubbleOpacity(1f - bubbleTransparency)
                     },
@@ -106,28 +121,36 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage) {
                     language.pick("越高越透明，最低仍保留可讀性。", "越高越透明，最低仍保留可读性。"),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                }
             }
-            item { Text("Persona", fontWeight = FontWeight.Bold) }
-            item { SelectRow(language.pick("不指定 Persona", "不指定 Persona"), current.personaId == null) { viewModel.updateConversationPersona(null) } }
-            items(personas, key = { it.id }) { persona -> SelectRow(persona.name, current.personaId == persona.id) { viewModel.updateConversationPersona(persona.id) } }
-            item { Text(language.pick("世界設定集", "世界设定集"), Modifier.padding(top = 8.dp), fontWeight = FontWeight.Bold) }
             item {
+                InfoSection {
+                    Text("Persona", fontWeight = FontWeight.Bold)
+                    SelectRow(language.pick("不指定 Persona", "不指定 Persona"), current.personaId == null) { viewModel.updateConversationPersona(null) }
+                    personas.forEach { persona ->
+                        SelectRow(persona.name, current.personaId == persona.id) { viewModel.updateConversationPersona(persona.id) }
+                    }
+                }
+            }
+            item {
+                InfoSection {
+                Text(language.pick("世界設定集", "世界设定集"), fontWeight = FontWeight.Bold)
                 Text(
                     if (activeIds.isEmpty()) language.pick("目前未啟用世界設定集。", "目前未启用世界设定集。")
                     else language.pick("已啟用 ${activeIds.size} 個世界設定集。", "已启用 ${activeIds.size} 个世界设定集。"),
                     style = MaterialTheme.typography.bodySmall,
                 )
-            }
-            items(sets, key = { it.id }) { set ->
-                val count = countMap[set.id] ?: 0
-                CheckRow(
-                    language.pick("${set.name}（$count 條）", "${set.name}（$count 条）"),
-                    set.id in activeIds,
-                ) { viewModel.toggleConversationWorldSet(set.id) }
+                sets.forEach { set ->
+                    val count = countMap[set.id] ?: 0
+                    CheckRow(
+                        language.pick("${set.name}（$count 條）", "${set.name}（$count 条）"),
+                        set.id in activeIds,
+                    ) { viewModel.toggleConversationWorldSet(set.id) }
+                }
+                }
             }
             item {
-                Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InfoSection {
                         Text(language.pick("手動壓縮對話", "手动压缩对话"), fontWeight = FontWeight.Bold)
                         Text(
                             if (current.summary.isBlank()) language.pick("目前沒有較早對話摘要。", "目前没有较早对话摘要。")
@@ -138,7 +161,7 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage) {
                             Text(current.summary, maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
                         }
                         Box {
-                            OutlinedButton(onClick = { summaryModeMenu = true }, Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = { summaryModeMenu = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
                                 Text(manualSummaryModeLabel(summaryMode, language))
                             }
                             DropdownMenu(summaryModeMenu, { summaryModeMenu = false }) {
@@ -157,6 +180,7 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage) {
                             keepRecentText,
                             { keepRecentText = it.filter(Char::isDigit).take(3) },
                             Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(24.dp),
                             label = { Text(language.pick("保留最近訊息數", "保留最近消息数")) },
                             supportingText = { Text(language.pick("本次有效，範圍 1 到 100。", "仅本次有效，范围 1 到 100。")) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -174,15 +198,24 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage) {
                             onClick = { viewModel.manuallySummarizeConversation(summaryMode, keepRecentCount ?: 20) },
                             enabled = canSummarize,
                             modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(24.dp),
                         ) {
                             Text(
                                 if (isSummarizing) language.pick("壓縮中...", "压缩中...")
                                 else language.pick("開始手動壓縮", "开始手动压缩"),
                             )
                         }
-                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun InfoSection(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        content = content,
+    )
 }

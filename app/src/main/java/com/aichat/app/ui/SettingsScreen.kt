@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.pager.*
 import androidx.compose.foundation.relocation.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -42,27 +43,33 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import kotlin.math.roundToInt
+import java.util.UUID
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun SettingsScreen(viewModel: SettingsViewModel, onRootSelected: (Screen) -> Unit, settings: AppSettings, showBottomBar: Boolean = true) {
-    var provider by remember { mutableStateOf(settings.provider) }; var base by remember { mutableStateOf(settings.customBaseUrl) }
-    var model by remember { mutableStateOf(settings.model) }; var key by remember { mutableStateOf("") }; var dark by remember { mutableStateOf(settings.darkTheme) }
+    var dark by remember(settings.darkTheme) { mutableStateOf(settings.darkTheme) }
     var language by remember(settings.language) { mutableStateOf(settings.language) }
-    var menu by remember { mutableStateOf(false) }
     var languageMenu by remember { mutableStateOf(false) }
     val lang = settings.language
-    LaunchedEffect(provider) { if (provider != settings.provider) model = provider.defaultModel; key = "" }
     Scaffold(topBar = { CompactTopBar(lang.pick("設定", "设置")) }, bottomBar = { if (showBottomBar) RootBottomBar(Screen.SETTINGS, lang, onRootSelected) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(lang.pick("供應商", "供应商"), fontWeight = FontWeight.Bold)
-            Box { OutlinedButton(onClick = { menu = true }) { Text(if (provider == Provider.CUSTOM) lang.pick("自訂端點", "自定义端点") else provider.label) }; DropdownMenu(menu, { menu = false }) { Provider.entries.forEach { option -> DropdownMenuItem({ Text(if (option == Provider.CUSTOM) lang.pick("自訂端點", "自定义端点") else option.label) }, { provider = option; menu = false }) } } }
-            if (provider == Provider.CUSTOM) OutlinedTextField(base, { base = it }, Modifier.fillMaxWidth(), label = { Text("Base URL") }, supportingText = { Text(lang.pick("HTTP 可以使用，但傳送前會警告可能外洩。", "HTTP 可以使用，但发送前会警告可能外泄。")) })
-            else Text(provider.baseUrl, style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(key, { key = it }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text(if (viewModel.currentApiKey(provider).isBlank()) lang.pick("填入 API Key", "填入 API Key") else lang.pick("已保存；留白可沿用", "已保存；留白可沿用")) })
-            OutlinedTextField(model, { model = it }, Modifier.fillMaxWidth(), label = { Text(lang.pick("模型 ID", "模型 ID")) })
+            Card(
+                Modifier.fillMaxWidth().clickable(onClick = viewModel::openApiSettings),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(lang.pick("API 設定", "API 设置"), fontWeight = FontWeight.Bold)
+                        Text(if (settings.provider == Provider.CUSTOM) lang.pick("自訂端點", "自定义端点") else settings.provider.label, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, lang.pick("進入", "进入"))
+                }
+            }
             Text(lang.pick("介面語言", "界面语言"), fontWeight = FontWeight.Bold)
             Box {
-                OutlinedButton(onClick = { languageMenu = true }) { Text(language.label) }
+                OutlinedButton(onClick = { languageMenu = true }, shape = RoundedCornerShape(24.dp)) { Text(language.label) }
                 DropdownMenu(languageMenu, { languageMenu = false }) {
                     AppLanguage.entries.forEach { option ->
                         DropdownMenuItem({ Text(option.label) }, { language = option; languageMenu = false })
@@ -70,8 +77,208 @@ internal fun SettingsScreen(viewModel: SettingsViewModel, onRootSelected: (Scree
                 }
             }
             ToggleRow(lang.pick("深色模式", "深色模式"), dark) { dark = it }
-            Button(onClick = { viewModel.saveSettings(provider, base, model, key, dark, language) }, Modifier.fillMaxWidth()) { Text(lang.pick("儲存設定", "保存设置")) }
+            Button(onClick = { viewModel.saveAppearanceSettings(dark, language) }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) { Text(lang.pick("儲存設定", "保存设置")) }
             Text(lang.pick("API Key 使用 Android Keystore 保護。App 不會自動備份本機內容。", "API Key 使用 Android Keystore 保护。App 不会自动备份本机内容。"), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+internal fun ApiSettingsScreen(viewModel: SettingsViewModel, language: AppLanguage) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val settings = uiState.settings
+    val presets = uiState.customEndpointPresets
+    var editor by remember { mutableStateOf<ApiEndpointEditor?>(null) }
+    val title = if (editor == null) language.pick("API 設定", "API 设置") else language.pick("API 端點", "API 端点")
+    Scaffold(
+        topBar = {
+            CompactTopBar(
+                title,
+                navigationIcon = { Back(language) { if (editor == null) viewModel.closeApiSettings() else editor = null } },
+            )
+        },
+    ) { padding ->
+        if (editor == null) {
+            ApiEndpointList(settings, presets, viewModel, language, Modifier.fillMaxSize().padding(padding)) { editor = it }
+        } else {
+            ApiEndpointDetail(
+                editor = editor!!,
+                isExistingCustom = (editor as? ApiEndpointEditor.Custom)?.let { custom -> presets.any { it.id == custom.id } } == true,
+                viewModel = viewModel,
+                language = language,
+                modifier = Modifier.fillMaxSize().padding(padding),
+                onClose = { editor = null },
+            )
+        }
+    }
+}
+
+private sealed interface ApiEndpointEditor {
+    data class BuiltIn(val provider: Provider) : ApiEndpointEditor
+    data class Custom(val id: String, val name: String, val baseUrl: String) : ApiEndpointEditor
+}
+
+@Composable
+private fun ApiEndpointList(
+    settings: AppSettings,
+    presets: List<CustomEndpointPreset>,
+    viewModel: SettingsViewModel,
+    language: AppLanguage,
+    modifier: Modifier,
+    onEdit: (ApiEndpointEditor) -> Unit,
+) {
+    val activeCustom = presets.firstOrNull { settings.provider == Provider.CUSTOM && it.baseUrl.trimEnd('/') == settings.customBaseUrl.trimEnd('/') }
+    val activeName = if (settings.provider == Provider.CUSTOM) activeCustom?.name ?: language.pick("自訂端點", "自定义端点") else settings.provider.label
+    Column(modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(language.pick("目前使用", "当前使用"), fontWeight = FontWeight.Bold)
+        Card(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(activeName, fontWeight = FontWeight.Bold)
+                Text(if (settings.provider == Provider.CUSTOM) settings.resolvedBaseUrl else settings.provider.baseUrl, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Text(language.pick("模型在聊天頁右上角選擇。", "模型在聊天页右上角选择。"), style = MaterialTheme.typography.bodySmall)
+        Text(language.pick("端點列表", "端点列表"), fontWeight = FontWeight.Bold)
+        Provider.entries.filter { it != Provider.CUSTOM }.forEach { provider ->
+            ApiEndpointCard(
+                title = provider.label,
+                detail = provider.baseUrl,
+                badge = if (settings.provider == provider) language.pick("目前使用", "当前使用") else language.pick("內建", "内置"),
+                keySaved = viewModel.currentApiKey(provider).isNotBlank(),
+                language = language,
+            ) { onEdit(ApiEndpointEditor.BuiltIn(provider)) }
+        }
+        presets.forEach { preset ->
+            ApiEndpointCard(
+                title = preset.name,
+                detail = preset.baseUrl,
+                badge = if (settings.provider == Provider.CUSTOM && preset.baseUrl.trimEnd('/') == settings.customBaseUrl.trimEnd('/')) language.pick("目前使用", "当前使用") else language.pick("自訂", "自定义"),
+                keySaved = viewModel.currentCustomEndpointPresetApiKey(preset.id).isNotBlank(),
+                language = language,
+            ) { onEdit(ApiEndpointEditor.Custom(preset.id, preset.name, preset.baseUrl)) }
+        }
+        OutlinedButton(
+            onClick = { onEdit(ApiEndpointEditor.Custom(UUID.randomUUID().toString(), "", "")) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+        ) {
+            Icon(Icons.Default.Add, null)
+            Spacer(Modifier.width(6.dp))
+            Text(language.pick("新增自訂端點", "新增自定义端点"))
+        }
+    }
+}
+
+@Composable
+private fun ApiEndpointCard(
+    title: String,
+    detail: String,
+    badge: String,
+    keySaved: Boolean,
+    language: AppLanguage,
+    onClick: () -> Unit,
+) {
+    Card(
+        Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, Modifier.weight(1f), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(badge, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(detail, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (keySaved) language.pick("Key 已保存", "Key 已保存") else language.pick("尚未保存 Key", "尚未保存 Key"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun ApiEndpointDetail(
+    editor: ApiEndpointEditor,
+    isExistingCustom: Boolean,
+    viewModel: SettingsViewModel,
+    language: AppLanguage,
+    modifier: Modifier,
+    onClose: () -> Unit,
+) {
+    when (editor) {
+        is ApiEndpointEditor.BuiltIn -> BuiltInEndpointDetail(editor.provider, viewModel, language, modifier)
+        is ApiEndpointEditor.Custom -> CustomEndpointDetail(editor, isExistingCustom, viewModel, language, modifier, onClose)
+    }
+}
+
+@Composable
+private fun BuiltInEndpointDetail(
+    provider: Provider,
+    viewModel: SettingsViewModel,
+    language: AppLanguage,
+    modifier: Modifier,
+) {
+    var key by remember(provider) { mutableStateOf("") }
+    val hasSavedKey = viewModel.currentApiKey(provider).isNotBlank()
+    Column(modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(provider.label, fontWeight = FontWeight.Bold)
+        Text(provider.baseUrl, style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(key, { key = it }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text(if (hasSavedKey) language.pick("已保存；留白可沿用", "已保存；留白可沿用") else language.pick("填入 API Key", "填入 API Key")) })
+        Button(
+            onClick = { viewModel.saveBuiltInEndpoint(provider, key, makeActive = false); key = "" },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = key.isNotBlank(),
+            shape = RoundedCornerShape(24.dp),
+        ) { Text(language.pick("儲存", "保存")) }
+        Button(
+            onClick = { viewModel.saveBuiltInEndpoint(provider, key, makeActive = true); key = "" },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = key.isNotBlank() || hasSavedKey,
+            shape = RoundedCornerShape(24.dp),
+        ) { Text(language.pick("設為目前使用", "设为当前使用")) }
+    }
+}
+
+@Composable
+private fun CustomEndpointDetail(
+    endpoint: ApiEndpointEditor.Custom,
+    isExisting: Boolean,
+    viewModel: SettingsViewModel,
+    language: AppLanguage,
+    modifier: Modifier,
+    onClose: () -> Unit,
+) {
+    var name by remember(endpoint.id) { mutableStateOf(endpoint.name) }
+    var baseUrl by remember(endpoint.id) { mutableStateOf(endpoint.baseUrl) }
+    var key by remember(endpoint.id) { mutableStateOf("") }
+    val hasSavedKey = isExisting && viewModel.currentCustomEndpointPresetApiKey(endpoint.id).isNotBlank()
+    val canSave = name.isNotBlank() && baseUrl.isNotBlank() && (key.isNotBlank() || hasSavedKey)
+    Column(modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("名稱", "名称")) }, singleLine = true)
+        OutlinedTextField(baseUrl, { baseUrl = it }, Modifier.fillMaxWidth(), label = { Text("Base URL") }, singleLine = true, supportingText = { Text(language.pick("HTTP 可以使用，但傳送前會警告可能外洩。", "HTTP 可以使用，但发送前会警告可能外泄。")) })
+        OutlinedTextField(key, { key = it }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text(if (hasSavedKey) language.pick("已保存；留白可沿用", "已保存；留白可沿用") else language.pick("填入 API Key", "填入 API Key")) })
+        Button(
+            onClick = { viewModel.saveCustomEndpoint(endpoint.id, name, baseUrl, key, makeActive = false); key = "" },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = canSave,
+            shape = RoundedCornerShape(24.dp),
+        ) { Text(language.pick("儲存", "保存")) }
+        Button(
+            onClick = { viewModel.saveCustomEndpoint(endpoint.id, name, baseUrl, key, makeActive = true); key = "" },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = canSave,
+            shape = RoundedCornerShape(24.dp),
+        ) { Text(language.pick("設為目前使用", "设为当前使用")) }
+        if (isExisting) {
+            OutlinedButton(
+                onClick = { viewModel.deleteCustomEndpoint(endpoint.id); onClose() },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+            ) { Text(language.pick("刪除", "删除")) }
         }
     }
 }
@@ -86,7 +293,7 @@ internal fun ModelsScreen(viewModel: SettingsViewModel, selected: String, langua
     Scaffold(topBar = { CompactTopBar(language.pick("選擇模型", "选择模型"), navigationIcon = { Back(language, onBack) }, actions = { IconButton(onClick = viewModel::refreshModels) { Icon(Icons.Default.Refresh, language.pick("重新載入", "重新载入")) } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (models.isNotEmpty()) OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(10.dp), placeholder = { Text(language.pick("搜尋模型", "搜索模型")) }, leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, language.pick("清除", "清除")) } })
-            when { loading -> LoadingOverlay(language.pick("載入模型...", "载入模型...")); models.isEmpty() -> EmptyState(language.pick("尚未取得模型", "尚未取得模型"), language.pick("可重新載入，或在設定頁手動填寫模型 ID。", "可重新载入，或在设置页手动填写模型 ID。")); filtered.isEmpty() -> EmptyState(language.pick("找不到符合的模型", "找不到符合的模型"), language.pick("清除搜尋文字後再試一次。", "清除搜索文字后再试一次。")); else -> LazyColumn { items(filtered, key = { it }) { model -> Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp).clickable { viewModel.chooseModel(model) }) { Row(Modifier.fillMaxWidth().padding(14.dp)) { Text(model, Modifier.weight(1f)); if (model == selected) Icon(Icons.Default.Check, language.pick("目前模型", "目前模型")) } } } } }
+            when { loading -> LoadingOverlay(language.pick("載入模型...", "载入模型...")); models.isEmpty() -> EmptyState(language.pick("尚未取得模型", "尚未取得模型"), language.pick("可重新載入，或先檢查 API 設定。", "可重新载入，或先检查 API 设置。")); filtered.isEmpty() -> EmptyState(language.pick("找不到符合的模型", "找不到符合的模型"), language.pick("清除搜尋文字後再試一次。", "清除搜索文字后再试一次。")); else -> LazyColumn { items(filtered, key = { it }) { model -> Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clickable { viewModel.chooseModel(model) }, shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) { Row(Modifier.fillMaxWidth().padding(14.dp)) { Text(model, Modifier.weight(1f)); if (model == selected) Icon(Icons.Default.Check, language.pick("目前模型", "目前模型")) } } } } }
         }
     }
 }

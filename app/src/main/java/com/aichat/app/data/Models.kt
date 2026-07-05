@@ -45,6 +45,12 @@ data class AppSettings(
         get() = resolvedBaseUrl.startsWith("http://", ignoreCase = true)
 }
 
+data class CustomEndpointPreset(
+    val id: String,
+    val name: String,
+    val baseUrl: String,
+)
+
 enum class ProfileType { CHARACTER, PERSONA }
 
 @Entity(tableName = "profiles")

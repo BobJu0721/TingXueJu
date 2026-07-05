@@ -1,5 +1,10 @@
 .gradle/
+.kotlin/
 .idea/
+.codex-remote-attachments/
+backups/
+ui-check/
+ui-current.png
 .android-sdk/
 .android-avd/
 .gradle-dist/

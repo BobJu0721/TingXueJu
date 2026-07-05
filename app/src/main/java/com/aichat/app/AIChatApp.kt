@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Person
@@ -29,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,6 +57,7 @@ internal val DOCUMENT_TYPES = arrayOf(
 private object AppRoute {
     const val HOME = "home"
     const val CHAT = "chat"
+    const val API_SETTINGS = "api_settings"
     const val MODELS = "models"
     const val PROFILE_EDIT = "profile_edit"
     const val WORLD_SETS = "world_sets"
@@ -101,6 +104,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                 settingsViewModel.refreshModels()
                 navController.navigate(AppRoute.MODELS) { launchSingleTop = true }
             }
+            Screen.API_SETTINGS -> navController.navigate(AppRoute.API_SETTINGS) { launchSingleTop = true }
             Screen.PROFILE_EDIT -> navController.navigate(AppRoute.PROFILE_EDIT) { launchSingleTop = true }
             Screen.WORLD_SETS -> navController.navigate(AppRoute.WORLD_SETS) { launchSingleTop = true }
             Screen.WORLD_SET_EDIT -> navController.navigate(AppRoute.WORLD_SET_EDIT) { launchSingleTop = true }
@@ -149,7 +153,52 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
         }
     }
 
-    MaterialTheme(colorScheme = if (settings.darkTheme) darkColorScheme() else lightColorScheme()) {
+    val colors = if (settings.darkTheme) {
+        darkColorScheme(
+            background = Color(0xFF000000),
+            surface = Color(0xFF202020),
+            surfaceVariant = Color(0xFF2A2A2D),
+            onSurface = Color(0xFFF2F2F2),
+            onSurfaceVariant = Color(0xFFD0D0D0),
+            primary = Color(0xFFEDEDED),
+            onPrimary = Color(0xFF111111),
+            primaryContainer = Color(0xFF2B2B2B),
+            onPrimaryContainer = Color(0xFFF2F2F2),
+            secondary = Color(0xFFD0D0D0),
+            onSecondary = Color(0xFF111111),
+            secondaryContainer = Color(0xFF2A2A2D),
+            onSecondaryContainer = Color(0xFFF2F2F2),
+            tertiary = Color(0xFFD0D0D0),
+            onTertiary = Color(0xFF111111),
+            tertiaryContainer = Color(0xFF2A2A2D),
+            onTertiaryContainer = Color(0xFFF2F2F2),
+            outline = Color(0xFF8A8A8A),
+            outlineVariant = Color(0xFF4A4A4A),
+        )
+    } else {
+        lightColorScheme(
+            background = Color(0xFFFAFAFA),
+            surface = Color.White,
+            surfaceVariant = Color(0xFFF1F1F1),
+            onSurface = Color(0xFF1F1F1F),
+            onSurfaceVariant = Color(0xFF5F5F5F),
+            primary = Color(0xFF111111),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFF1F1F1),
+            onPrimaryContainer = Color(0xFF1F1F1F),
+            secondary = Color(0xFF4A4A4A),
+            onSecondary = Color.White,
+            secondaryContainer = Color(0xFFE8E8E8),
+            onSecondaryContainer = Color(0xFF1F1F1F),
+            tertiary = Color(0xFF4A4A4A),
+            onTertiary = Color.White,
+            tertiaryContainer = Color(0xFFE8E8E8),
+            onTertiaryContainer = Color(0xFF1F1F1F),
+            outline = Color(0xFF8A8A8A),
+            outlineVariant = Color(0xFFD0D0D0),
+        )
+    }
+    MaterialTheme(colorScheme = colors) {
         Box(Modifier.fillMaxSize()) {
             NavHost(navController = navController, startDestination = AppRoute.HOME) {
                 composable(AppRoute.HOME) {
@@ -166,6 +215,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                     )
                 }
                 composable(AppRoute.CHAT) { ChatScreen(chatViewModel, language) }
+                composable(AppRoute.API_SETTINGS) { ApiSettingsScreen(settingsViewModel, language) }
                 composable(AppRoute.MODELS) { ModelsScreen(settingsViewModel, settings.model, language, chatViewModel::openCurrentChat) }
                 composable(AppRoute.PROFILE_EDIT) { ProfileEditScreen(profilesViewModel, language) }
                 composable(AppRoute.WORLD_SETS) { WorldSetsScreen(worldSetsViewModel, { navigateTo(Screen.LIBRARY) }, language) }
@@ -209,6 +259,8 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                         else -> worldSetsViewModel.dismissPendingImport()
                     }
                 },
+                shape = RoundedCornerShape(24.dp),
+                containerColor = MaterialTheme.colorScheme.surface,
                 title = { Text(language.pick("\u78ba\u8a8d\u532f\u5165", "\u786e\u8ba4\u5bfc\u5165")) },
                 text = {
                     Text(language.pick(
@@ -231,6 +283,8 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
         if (showUnsafeWarning) {
             AlertDialog(
                 onDismissRequest = chatViewModel::dismissUnsafeHttp,
+                shape = RoundedCornerShape(24.dp),
+                containerColor = MaterialTheme.colorScheme.surface,
                 title = { Text(language.pick("HTTP \u9023\u7dda\u8b66\u544a", "HTTP \u8fde\u63a5\u8b66\u544a")) },
                 text = { Text(language.pick("\u4f60\u6b63\u5728\u4f7f\u7528 HTTP\uff0cAPI Key \u53ef\u80fd\u88ab\u7db2\u8def\u4e2d\u9593\u4eba\u64f7\u53d6\u3002", "\u4f60\u6b63\u5728\u4f7f\u7528 HTTP\uff0cAPI Key \u53ef\u80fd\u88ab\u7f51\u7edc\u4e2d\u95f4\u4eba\u622a\u53d6\u3002")) },
                 confirmButton = { TextButton(onClick = chatViewModel::confirmUnsafeHttp) { Text(language.pick("\u7e7c\u7e8c\u4f7f\u7528", "\u7ee7\u7eed\u4f7f\u7528")) } },
@@ -306,8 +360,8 @@ internal fun RootBottomBar(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().height(52.dp),
-        shadowElevation = 4.dp,
-        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 0.dp,
+        color = minimalCardContainerColor(),
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
@@ -329,7 +383,7 @@ internal fun CompactTopBar(
     onTitleClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    Surface(Modifier.fillMaxWidth().statusBarsPadding(), shadowElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
+    Surface(Modifier.fillMaxWidth().statusBarsPadding(), shadowElevation = 0.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
             Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,

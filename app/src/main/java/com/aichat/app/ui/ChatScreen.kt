@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.pager.*
@@ -20,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -154,6 +156,9 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
                             chatScope.launch { listState.animateScrollToItem(bottomAnchorIndex) }
                         }
                     },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    shape = RoundedCornerShape(24.dp),
                 ) {
                     Icon(Icons.Default.KeyboardArrowDown, language.pick("回到底部", "回到底部"))
                 }
@@ -163,6 +168,8 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
     if (renameDialogVisible) {
         AlertDialog(
             onDismissRequest = { renameDialogVisible = false },
+            shape = RoundedCornerShape(24.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
             title = { Text(language.pick("重新命名對話", "重新命名对话")) },
             text = {
                 OutlinedTextField(
@@ -194,8 +201,21 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
 private fun MessageComposer(input: String, streaming: Boolean, language: AppLanguage, onInput: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit) {
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    Surface(Modifier.imePadding(), shadowElevation = 3.dp) { Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
-        OutlinedTextField(input, onInput, Modifier.weight(1f), placeholder = { Text(language.pick("輸入訊息", "输入消息")) }, maxLines = 5)
+    Surface(Modifier.imePadding(), color = MaterialTheme.colorScheme.background) { Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
+        OutlinedTextField(
+            input,
+            onInput,
+            Modifier.weight(1f),
+            placeholder = { Text(language.pick("輸入訊息", "输入消息")) },
+            maxLines = 5,
+            shape = RoundedCornerShape(24.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+            ),
+        )
         IconButton(onClick = {
             if (streaming) onStop()
             else {
@@ -242,12 +262,20 @@ private fun MessageBubble(
             .bringIntoViewRequester(bringIntoViewRequester),
         horizontalAlignment = if (user) Alignment.End else Alignment.Start,
     ) {
-        val bubbleColor = if (user) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer
-        Card(
+        val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+        val bubbleColor = when {
+            user && dark -> Color(0xFF2B2B2B)
+            user -> Color(0xFFF1F1F1)
+            else -> MaterialTheme.colorScheme.background
+        }
+        Surface(
             Modifier
                 .fillMaxWidth(if (user) .86f else .96f)
                 .clickable(enabled = canShowActions, onClick = onToggleActions),
-            colors = CardDefaults.cardColors(containerColor = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f))),
+            shape = RoundedCornerShape(24.dp),
+            color = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f)),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
         ) {
             Column(Modifier.padding(12.dp)) {
                 if (reasoning.isNotBlank()) {
@@ -290,6 +318,8 @@ private fun MessageBubble(
     if (editing) {
         AlertDialog(
             onDismissRequest = { editing = false },
+            shape = RoundedCornerShape(24.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
             title = { Text(if (user) language.pick("編輯自己的訊息", "编辑自己的消息") else language.pick("編輯 AI 訊息", "编辑 AI 消息")) },
             text = {
                 OutlinedTextField(

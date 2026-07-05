@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.pager.*
 import androidx.compose.foundation.relocation.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -50,7 +51,12 @@ internal fun LibraryScreen(onOpenWorldSets: () -> Unit, profilesViewModel: Profi
     Scaffold(topBar = { CompactTopBar(language.pick("資料庫", "资料库")) }, bottomBar = { if (showBottomBar) RootBottomBar(Screen.LIBRARY, language, onRootSelected) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
-                Card(Modifier.fillMaxWidth().clickable(onClick = onOpenWorldSets)) {
+                Card(
+                    Modifier.fillMaxWidth().clickable(onClick = onOpenWorldSets),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.MenuBook, null); Spacer(Modifier.width(12.dp))
                         Column { Text(language.pick("世界設定集", "世界设定集"), fontWeight = FontWeight.Bold); Text(language.pick("地點、人物關係與規則", "地点、人物关系与规则"), style = MaterialTheme.typography.bodySmall) }

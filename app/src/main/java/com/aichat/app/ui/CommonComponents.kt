@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.pager.*
 import androidx.compose.foundation.relocation.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -20,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -47,20 +49,44 @@ import kotlin.math.roundToInt
 
 @Composable internal fun CheckRow(label: String, checked: Boolean, onClick: () -> Unit) = Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Checkbox(checked, { onClick() }); Text(label) }
 
-@Composable internal fun ToggleRow(label: String, checked: Boolean, onCheck: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(label, Modifier.weight(1f)); Switch(checked, onCheck) }
+@Composable internal fun ToggleRow(label: String, checked: Boolean, onCheck: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(label, Modifier.weight(1f)); Switch(checked, onCheck, colors = minimalSwitchColors()) }
 
-@Composable internal fun DetailedToggleRow(title: String, detail: String, checked: Boolean, onCheck: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title); Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(checked, onCheck) }
+@Composable internal fun DetailedToggleRow(title: String, detail: String, checked: Boolean, onCheck: (Boolean) -> Unit) = Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title); Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(checked, onCheck, colors = minimalSwitchColors()) }
+
+@Composable internal fun minimalSwitchColors() = SwitchDefaults.colors(
+    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+    checkedTrackColor = MaterialTheme.colorScheme.primary,
+    checkedBorderColor = MaterialTheme.colorScheme.primary,
+    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+    uncheckedBorderColor = MaterialTheme.colorScheme.outline,
+)
 
 @Composable internal fun Back(language: AppLanguage, onClick: () -> Unit) = IconButton(onClick) { Icon(Icons.AutoMirrored.Filled.ArrowBack, language.pick("返回", "返回")) }
+
+@Composable internal fun minimalCardContainerColor(): Color =
+    if (MaterialTheme.colorScheme.background.luminance() > 0.5f) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.background
 
 internal fun manualSummaryModeLabel(mode: ManualSummaryMode, language: AppLanguage): String = when (mode) {
     ManualSummaryMode.UN_SUMMARIZED -> language.pick("壓縮未摘要的較早訊息", "压缩未摘要的较早消息")
     ManualSummaryMode.REBUILD_ALL -> language.pick("重新壓縮全部較早訊息", "重新压缩全部较早消息")
 }
 
-@Composable internal fun LoadingOverlay(text: String) = Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Card { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(24.dp)); Spacer(Modifier.width(12.dp)); Text(text) } } }
+@Composable internal fun LoadingOverlay(text: String) = Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(24.dp)); Spacer(Modifier.width(12.dp)); Text(text) } } }
 
 @Composable internal fun EmptyState(title: String, detail: String, modifier: Modifier = Modifier) = Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(title, style = MaterialTheme.typography.titleMedium); Text(detail) } }
+
+@Composable internal fun DeleteConfirmDialog(title: String, message: String, language: AppLanguage, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(language.pick("刪除", "删除")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(language.pick("取消", "取消")) } },
+    )
+}
 
 
 @Composable
@@ -80,7 +106,7 @@ internal fun ChatBackground(path: String, darkTheme: Boolean) {
 
 @Composable
 internal fun ErrorDialog(error: UiError, language: AppLanguage, onDismiss: () -> Unit, onSettings: () -> Unit, onTrim: () -> Unit, onNew: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(error.title) }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(error.message); Text(error.suggestion, fontWeight = FontWeight.Bold) } }, confirmButton = {
+    AlertDialog(onDismissRequest = onDismiss, shape = RoundedCornerShape(24.dp), containerColor = MaterialTheme.colorScheme.surface, title = { Text(error.title) }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(error.message); Text(error.suggestion, fontWeight = FontWeight.Bold) } }, confirmButton = {
         if (error.kind == ErrorKind.CONTEXT_LENGTH) TextButton(onClick = onTrim) { Text(language.pick("裁切舊訊息並重試", "裁切旧消息并重试")) } else TextButton(onClick = onDismiss) { Text(language.pick("關閉", "关闭")) }
     }, dismissButton = { if (error.kind == ErrorKind.CONTEXT_LENGTH) TextButton(onClick = onNew) { Text(language.pick("建立新對話", "建立新对话")) } else TextButton(onClick = onSettings) { Text(language.pick("前往設定", "前往设置")) } })
 }

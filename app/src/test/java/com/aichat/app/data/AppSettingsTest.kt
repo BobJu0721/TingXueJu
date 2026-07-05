@@ -27,6 +27,43 @@ class AppSettingsTest {
     }
 
     @Test
+    fun customEndpointPresetsRoundTripJson() {
+        val presets = listOf(CustomEndpointPreset("one", "Local", "http://127.0.0.1:11434/v1"))
+
+        assertEquals(presets, SettingsRepository.decodeCustomEndpointPresets(SettingsRepository.encodeCustomEndpointPresets(presets)))
+    }
+
+    @Test
+    fun customEndpointPresetUpsertUpdatesExistingId() {
+        val updated = SettingsRepository.upsertCustomEndpointPreset(
+            listOf(CustomEndpointPreset("one", "Old", "https://old.example/v1")),
+            CustomEndpointPreset("one", "New", "https://new.example/v1"),
+        )
+
+        assertEquals(listOf(CustomEndpointPreset("one", "New", "https://new.example/v1")), updated)
+    }
+
+    @Test
+    fun customEndpointPresetUpsertTrimsTrailingSlash() {
+        val updated = SettingsRepository.upsertCustomEndpointPreset(
+            emptyList(),
+            CustomEndpointPreset("one", "New", "https://new.example/v1/"),
+        )
+
+        assertEquals("https://new.example/v1", updated.single().baseUrl)
+    }
+
+    @Test
+    fun customEndpointPresetRemoveDeletesMatchingId() {
+        val presets = listOf(
+            CustomEndpointPreset("one", "One", "https://one.example/v1"),
+            CustomEndpointPreset("two", "Two", "https://two.example/v1"),
+        )
+
+        assertEquals(listOf(presets[1]), SettingsRepository.removeCustomEndpointPreset(presets, "one"))
+    }
+
+    @Test
     fun customHttpEndpointIsReportedAsUnsafe() {
         assertTrue(AppSettings(provider = Provider.CUSTOM, customBaseUrl = "http://192.168.1.2:8080/v1").usesUnsafeHttp)
         assertFalse(AppSettings(provider = Provider.CUSTOM, customBaseUrl = "https://example.com/v1").usesUnsafeHttp)

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aichat.app.data.AppLanguage
 import com.aichat.app.data.AppSettings
+import com.aichat.app.data.CustomEndpointPreset
 import com.aichat.app.data.Provider
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.launch
 
 data class SettingsUiState(
     val settings: AppSettings = AppSettings(),
+    val customEndpointPresets: List<CustomEndpointPreset> = emptyList(),
     val models: List<String> = emptyList(),
     val isLoadingModels: Boolean = false,
     val error: UiError? = null,
@@ -26,27 +28,73 @@ class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
     private val listModels = appContainer.listModelsUseCase
 
     private val settings = settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
+    private val customEndpointPresets = settingsRepository.customEndpointPresets.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _models = MutableStateFlow<List<String>>(emptyList())
     private val _isLoadingModels = MutableStateFlow(false)
     private val _error = MutableStateFlow<UiError?>(null)
     private val _navigationEvents = MutableSharedFlow<Screen>()
     val navigationEvents = _navigationEvents.asSharedFlow()
-    val uiState = combine(settings, _models, _isLoadingModels, _error) { settings, models, isLoadingModels, error ->
-        SettingsUiState(settings, models, isLoadingModels, error)
+    val uiState = combine(settings, customEndpointPresets, _models, _isLoadingModels, _error) { settings, presets, models, isLoadingModels, error ->
+        SettingsUiState(settings, presets, models, isLoadingModels, error)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, SettingsUiState())
 
     fun clearError() { _error.value = null }
 
-    fun saveSettings(provider: Provider, baseUrl: String, model: String, apiKey: String, darkTheme: Boolean, language: AppLanguage) {
+    fun openApiSettings() {
         viewModelScope.launch {
-            settingsRepository.save(AppSettings(provider, baseUrl.trim(), model.ifBlank { provider.defaultModel }.trim(), darkTheme, language))
+            _navigationEvents.emit(Screen.API_SETTINGS)
+        }
+    }
+
+    fun closeApiSettings() {
+        viewModelScope.launch {
+            _navigationEvents.emit(Screen.SETTINGS)
+        }
+    }
+
+    fun saveAppearanceSettings(darkTheme: Boolean, language: AppLanguage) {
+        viewModelScope.launch {
+            settingsRepository.save(settings.value.copy(darkTheme = darkTheme, language = language))
+        }
+    }
+
+    fun saveBuiltInEndpoint(provider: Provider, apiKey: String, makeActive: Boolean) {
+        if (provider == Provider.CUSTOM) return
+        viewModelScope.launch {
+            val current = settings.value
             if (apiKey.isNotBlank()) secretStore.put(provider, apiKey.trim())
-            _navigationEvents.emit(Screen.CONVERSATIONS)
+            if (makeActive) settingsRepository.save(current.copy(provider = provider))
+        }
+    }
+
+    fun saveCustomEndpoint(id: String, name: String, baseUrl: String, apiKey: String, makeActive: Boolean) {
+        viewModelScope.launch {
+            val preset = CustomEndpointPreset(id, name.trim(), baseUrl.trim())
+            settingsRepository.saveCustomEndpointPreset(preset)
+            if (apiKey.isNotBlank()) secretStore.putCustomEndpointPreset(id, apiKey.trim())
+            if (makeActive) {
+                val savedKey = if (apiKey.isNotBlank()) apiKey.trim() else secretStore.getCustomEndpointPreset(id)
+                if (savedKey.isNotBlank()) secretStore.put(Provider.CUSTOM, savedKey)
+                settingsRepository.save(settings.value.copy(provider = Provider.CUSTOM, customBaseUrl = preset.baseUrl.trimEnd('/')))
+            }
+        }
+    }
+
+    fun deleteCustomEndpoint(id: String) {
+        viewModelScope.launch {
+            val preset = customEndpointPresets.value.firstOrNull { it.id == id }
+            settingsRepository.deleteCustomEndpointPreset(id)
+            secretStore.removeCustomEndpointPreset(id)
+            if (settings.value.provider == Provider.CUSTOM && preset?.baseUrl?.trimEnd('/') == settings.value.customBaseUrl.trimEnd('/')) {
+                settingsRepository.save(settings.value.copy(provider = Provider.OPENROUTER, customBaseUrl = ""))
+            }
         }
     }
 
     fun currentApiKey(provider: Provider): String = secretStore.get(provider)
+
+    fun currentCustomEndpointPresetApiKey(id: String): String = secretStore.getCustomEndpointPreset(id)
 
     fun refreshModels() {
         if (_isLoadingModels.value) return

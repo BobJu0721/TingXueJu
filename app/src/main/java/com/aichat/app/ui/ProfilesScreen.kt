@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.pager.*
 import androidx.compose.foundation.relocation.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -52,7 +53,7 @@ internal fun ProfilesScreen(viewModel: ProfilesViewModel, onRootSelected: (Scree
     Scaffold(
         topBar = { CompactTopBar(title, actions = { IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, language.pick("匯入文件", "导入文件")) } }) },
         bottomBar = { if (showBottomBar && type == ProfileType.CHARACTER) RootBottomBar(Screen.CHARACTERS, language, onRootSelected) },
-        floatingActionButton = { FloatingActionButton(onClick = { viewModel.newProfile(type) }) { Icon(Icons.Default.Add, language.pick("新增$title", "新增$title")) } },
+        floatingActionButton = { FloatingActionButton(onClick = { viewModel.newProfile(type) }, shape = RoundedCornerShape(24.dp), containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface) { Icon(Icons.Default.Add, language.pick("新增$title", "新增$title")) } },
     ) { padding ->
         if (profiles.isEmpty()) EmptyState(language.pick("還沒有$title", "还没有$title"), language.pick("可以手動建立，或從 TXT、JSON、DOCX 文件交給 AI 整理。", "可以手动建立，或从 TXT、JSON、DOCX 文件交给 AI 整理。"), Modifier.padding(padding))
         else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -64,8 +65,13 @@ internal fun ProfilesScreen(viewModel: ProfilesViewModel, onRootSelected: (Scree
 
 @Composable
 internal fun ProfileRow(profile: ProfileEntity, canChat: Boolean, viewModel: ProfilesViewModel, language: AppLanguage) {
-    Card(Modifier.fillMaxWidth().clickable { viewModel.editProfile(profile) }) {
-        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Card(
+        Modifier.fillMaxWidth().clickable { viewModel.editProfile(profile) },
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(start = 18.dp, top = 14.dp, bottom = 14.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(profile.name, fontWeight = FontWeight.Bold)
                 if (profile.summary.isNotBlank()) Text(profile.summary, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
@@ -103,10 +109,10 @@ internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLangua
             OutlinedTextField(alternates, { alternates = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("替代開場白", "替代开场白")) }, supportingText = { Text(language.pick("每行一個替代版本", "每行一个替代版本")) }, minLines = 2)
             OutlinedTextField(instructions, { instructions = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("額外指示", "额外指示")) }, minLines = 2)
             TextButton(onClick = { showHelp = !showHelp }) { Text(if (showHelp) language.pick("收合填寫示範", "收合填写示范") else language.pick("查看填寫示範", "查看填写示范")) }
-            if (showHelp) Card { Text(language.pick("簡介：一名尋找失落城市的旅行學者。\n個性：冷靜、觀察敏銳，面對熟人會偶爾開玩笑。\n背景：曾在北方學院研究古代文字。\n範例對話：我不會急著下結論，先看看牆上的刻痕。\n開場白：你也注意到這扇門了嗎？", "简介：一名寻找失落城市的旅行学者。\n个性：冷静、观察敏锐，面对熟人会偶尔开玩笑。\n背景：曾在北方学院研究古代文字。\n范例对话：我不会急着下结论，先看看墙上的刻痕。\n开场白：你也注意到这扇门了吗？"), Modifier.padding(12.dp)) }
+            if (showHelp) Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) { Text(language.pick("簡介：一名尋找失落城市的旅行學者。\n個性：冷靜、觀察敏銳，面對熟人會偶爾開玩笑。\n背景：曾在北方學院研究古代文字。\n範例對話：我不會急著下結論，先看看牆上的刻痕。\n開場白：你也注意到這扇門了嗎？", "简介：一名寻找失落城市的旅行学者。\n个性：冷静、观察敏锐，面对熟人会偶尔开玩笑。\n背景：曾在北方学院研究古代文字。\n范例对话：我不会急着下结论，先看看墙上的刻痕。\n开场白：你也注意到这扇门了吗？"), Modifier.padding(12.dp)) }
             Button(onClick = {
                 viewModel.saveProfile(ProfileDraft(draft.id, draft.type, name, summary, personality, background, examples, greeting, alternates.lines().filter(String::isNotBlank), instructions))
-            }, Modifier.fillMaxWidth()) { Text(language.pick("儲存", "保存")) }
+            }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) { Text(language.pick("儲存", "保存")) }
             Spacer(Modifier.height(16.dp))
         }
     }
