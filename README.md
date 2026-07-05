@@ -13,7 +13,7 @@
 
 ## 功能
 
-- 串接 OpenRouter、Groq、Cerebras，以及自訂 OpenAI 相容 API 端點。
+- 串接 OpenRouter、Groq、Cerebras等，以及自訂 OpenAI 相容 API 端點。
 - 使用者自行填入 API Key；App 不內建共享 Key。
 - 本機保存聊天紀錄、角色、Persona 與世界設定集。
 - 角色與 Persona 支援分段表單，並可從 TXT、JSON、DOCX 文件交給 AI 整理成草稿。
