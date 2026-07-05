@@ -5,6 +5,7 @@
 backups/
 ui-check/
 ui-current.png
+apk/TingXueJu-debug.apk
 .android-sdk/
 .android-avd/
 .gradle-dist/
