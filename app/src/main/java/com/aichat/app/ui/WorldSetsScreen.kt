@@ -98,12 +98,14 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(sets, key = { it.id }) { set ->
+                    val cardShape = RoundedCornerShape(24.dp)
                     Card(
-                        Modifier.fillMaxWidth().combinedClickable(
+                        Modifier.fillMaxWidth().clippedCombinedClickable(
+                            cardShape,
                             onClick = { viewModel.editWorldSet(set) },
                             onLongClick = { pendingDelete = set },
                         ),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = cardShape,
                         colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     ) {
@@ -226,12 +228,14 @@ internal fun WorldSetEditScreen(viewModel: WorldSetsViewModel, language: AppLang
             }
             if (worldSet == null) item { Text(language.pick("正在建立設定集...", "正在建立设定集...")) }
             items(entries, key = { it.id }) { entry ->
+                val cardShape = RoundedCornerShape(24.dp)
                 Card(
-                    Modifier.fillMaxWidth().combinedClickable(
+                    Modifier.fillMaxWidth().clippedCombinedClickable(
+                        cardShape,
                         onClick = { editingEntry = entry; showEntryDialog = true },
                         onLongClick = { pendingEntryDelete = entry },
                     ),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = cardShape,
                     colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 ) {

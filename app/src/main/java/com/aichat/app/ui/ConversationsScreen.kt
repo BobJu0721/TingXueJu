@@ -71,12 +71,14 @@ internal fun ConversationsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(conversations, key = { it.id }) { conversation ->
+                    val cardShape = RoundedCornerShape(24.dp)
                     Card(
-                        Modifier.fillMaxWidth().combinedClickable(
+                        Modifier.fillMaxWidth().clippedCombinedClickable(
+                            cardShape,
                             onClick = { viewModel.selectConversation(conversation.id) },
                             onLongClick = { pendingDelete = conversation },
                         ),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = cardShape,
                         colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     ) {

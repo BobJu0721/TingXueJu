@@ -19,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
@@ -52,6 +53,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
     val input by viewModel.input.collectAsStateWithLifecycle()
     val streaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val darkTheme = isSystemInDarkTheme()
     val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
     val selectedId by viewModel.selectedConversationId.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
@@ -110,7 +112,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
         bottomBar = { MessageComposer(input, streaming, language, viewModel::setInput, viewModel::send, viewModel::stopStreaming) },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            ChatBackground(conversation?.backgroundImagePath.orEmpty(), settings.darkTheme)
+            ChatBackground(conversation?.backgroundImagePath.orEmpty(), darkTheme)
             if (messages.isEmpty()) EmptyState(language.pick("開始聊天", "开始聊天"), language.pick("輸入訊息，或從角色頁建立帶有開場白的對話。", "输入消息，或从角色页建立带有开场白的对话。"))
             else LazyColumn(
                 state = listState,
@@ -268,11 +270,13 @@ private fun MessageBubble(
             user -> Color(0xFFF1F1F1)
             else -> MaterialTheme.colorScheme.background
         }
+        val bubbleShape = RoundedCornerShape(24.dp)
         Surface(
             Modifier
                 .fillMaxWidth(if (user) .86f else .96f)
+                .clip(bubbleShape)
                 .clickable(enabled = canShowActions, onClick = onToggleActions),
-            shape = RoundedCornerShape(24.dp),
+            shape = bubbleShape,
             color = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f)),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
@@ -308,7 +312,10 @@ private fun MessageBubble(
             }
         }
         if (canShowActions && actionsVisible) {
-            Row(Modifier.padding(top = 2.dp)) {
+            Row(
+                modifier = (if (user) Modifier.fillMaxWidth(.86f) else Modifier).padding(top = 2.dp),
+                horizontalArrangement = Arrangement.Start,
+            ) {
                 IconButton(onClick = { clipboard.setText(AnnotatedString(message.content)) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp)) }
                 IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑"), Modifier.size(18.dp)) }
                 IconButton(onClick = { onResend(message.id) }) { Icon(Icons.Default.Refresh, language.pick("重新發送", "重新发送"), Modifier.size(18.dp)) }

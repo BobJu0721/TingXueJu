@@ -1,6 +1,7 @@
 package com.aichat.app
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -153,7 +154,8 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
         }
     }
 
-    val colors = if (settings.darkTheme) {
+    val darkTheme = isSystemInDarkTheme()
+    val colors = if (darkTheme) {
         darkColorScheme(
             background = Color(0xFF000000),
             surface = Color(0xFF202020),
@@ -326,6 +328,7 @@ private fun RootPager(
         }
     }
     Scaffold(
+        contentWindowInsets = WindowInsets(0.dp),
         bottomBar = {
             RootBottomBar(selected, language) { target ->
                 val targetPage = roots.indexOf(target)
@@ -383,7 +386,7 @@ internal fun CompactTopBar(
     onTitleClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    Surface(Modifier.fillMaxWidth().statusBarsPadding(), shadowElevation = 0.dp, color = MaterialTheme.colorScheme.surface) {
+    Surface(Modifier.fillMaxWidth(), shadowElevation = 0.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
             Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,

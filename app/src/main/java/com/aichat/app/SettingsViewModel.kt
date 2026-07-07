@@ -64,7 +64,10 @@ class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
         viewModelScope.launch {
             val current = settings.value
             if (apiKey.isNotBlank()) secretStore.put(provider, apiKey.trim())
-            if (makeActive) settingsRepository.save(current.copy(provider = provider))
+            if (makeActive) {
+                settingsRepository.save(current.copy(provider = provider))
+                _navigationEvents.emit(Screen.SETTINGS)
+            }
         }
     }
 
@@ -77,6 +80,7 @@ class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
                 val savedKey = if (apiKey.isNotBlank()) apiKey.trim() else secretStore.getCustomEndpointPreset(id)
                 if (savedKey.isNotBlank()) secretStore.put(Provider.CUSTOM, savedKey)
                 settingsRepository.save(settings.value.copy(provider = Provider.CUSTOM, customBaseUrl = preset.baseUrl.trimEnd('/')))
+                _navigationEvents.emit(Screen.SETTINGS)
             }
         }
     }

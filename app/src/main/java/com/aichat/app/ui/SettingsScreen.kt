@@ -47,15 +47,15 @@ import java.util.UUID
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun SettingsScreen(viewModel: SettingsViewModel, onRootSelected: (Screen) -> Unit, settings: AppSettings, showBottomBar: Boolean = true) {
-    var dark by remember(settings.darkTheme) { mutableStateOf(settings.darkTheme) }
     var language by remember(settings.language) { mutableStateOf(settings.language) }
     var languageMenu by remember { mutableStateOf(false) }
     val lang = settings.language
     Scaffold(topBar = { CompactTopBar(lang.pick("設定", "设置")) }, bottomBar = { if (showBottomBar) RootBottomBar(Screen.SETTINGS, lang, onRootSelected) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            val apiCardShape = RoundedCornerShape(24.dp)
             Card(
-                Modifier.fillMaxWidth().clickable(onClick = viewModel::openApiSettings),
-                shape = RoundedCornerShape(24.dp),
+                Modifier.fillMaxWidth().clippedClickable(apiCardShape, viewModel::openApiSettings),
+                shape = apiCardShape,
                 colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             ) {
@@ -76,8 +76,7 @@ internal fun SettingsScreen(viewModel: SettingsViewModel, onRootSelected: (Scree
                     }
                 }
             }
-            ToggleRow(lang.pick("深色模式", "深色模式"), dark) { dark = it }
-            Button(onClick = { viewModel.saveAppearanceSettings(dark, language) }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) { Text(lang.pick("儲存設定", "保存设置")) }
+            Button(onClick = { viewModel.saveAppearanceSettings(settings.darkTheme, language) }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) { Text(lang.pick("儲存設定", "保存设置")) }
             Text(lang.pick("API Key 使用 Android Keystore 保護。App 不會自動備份本機內容。", "API Key 使用 Android Keystore 保护。App 不会自动备份本机内容。"), style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -183,9 +182,10 @@ private fun ApiEndpointCard(
     language: AppLanguage,
     onClick: () -> Unit,
 ) {
+    val cardShape = RoundedCornerShape(24.dp)
     Card(
-        Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(24.dp),
+        Modifier.fillMaxWidth().clippedClickable(cardShape, onClick),
+        shape = cardShape,
         colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -293,7 +293,7 @@ internal fun ModelsScreen(viewModel: SettingsViewModel, selected: String, langua
     Scaffold(topBar = { CompactTopBar(language.pick("選擇模型", "选择模型"), navigationIcon = { Back(language, onBack) }, actions = { IconButton(onClick = viewModel::refreshModels) { Icon(Icons.Default.Refresh, language.pick("重新載入", "重新载入")) } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (models.isNotEmpty()) OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(10.dp), placeholder = { Text(language.pick("搜尋模型", "搜索模型")) }, leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, language.pick("清除", "清除")) } })
-            when { loading -> LoadingOverlay(language.pick("載入模型...", "载入模型...")); models.isEmpty() -> EmptyState(language.pick("尚未取得模型", "尚未取得模型"), language.pick("可重新載入，或先檢查 API 設定。", "可重新载入，或先检查 API 设置。")); filtered.isEmpty() -> EmptyState(language.pick("找不到符合的模型", "找不到符合的模型"), language.pick("清除搜尋文字後再試一次。", "清除搜索文字后再试一次。")); else -> LazyColumn { items(filtered, key = { it }) { model -> Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clickable { viewModel.chooseModel(model) }, shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) { Row(Modifier.fillMaxWidth().padding(14.dp)) { Text(model, Modifier.weight(1f)); if (model == selected) Icon(Icons.Default.Check, language.pick("目前模型", "目前模型")) } } } } }
+            when { loading -> LoadingOverlay(language.pick("載入模型...", "载入模型...")); models.isEmpty() -> EmptyState(language.pick("尚未取得模型", "尚未取得模型"), language.pick("可重新載入，或先檢查 API 設定。", "可重新载入，或先检查 API 设置。")); filtered.isEmpty() -> EmptyState(language.pick("找不到符合的模型", "找不到符合的模型"), language.pick("清除搜尋文字後再試一次。", "清除搜索文字后再试一次。")); else -> LazyColumn { items(filtered, key = { it }) { model -> Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clippedClickable(RoundedCornerShape(24.dp)) { viewModel.chooseModel(model) }, shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) { Row(Modifier.fillMaxWidth().padding(14.dp)) { Text(model, Modifier.weight(1f)); if (model == selected) Icon(Icons.Default.Check, language.pick("目前模型", "目前模型")) } } } } }
         }
     }
 }

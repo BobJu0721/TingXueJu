@@ -65,9 +65,10 @@ internal fun ProfilesScreen(viewModel: ProfilesViewModel, onRootSelected: (Scree
 
 @Composable
 internal fun ProfileRow(profile: ProfileEntity, canChat: Boolean, viewModel: ProfilesViewModel, language: AppLanguage) {
+    val cardShape = RoundedCornerShape(24.dp)
     Card(
-        Modifier.fillMaxWidth().clickable { viewModel.editProfile(profile) },
-        shape = RoundedCornerShape(24.dp),
+        Modifier.fillMaxWidth().clippedClickable(cardShape) { viewModel.editProfile(profile) },
+        shape = cardShape,
         colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
