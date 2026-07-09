@@ -386,7 +386,7 @@ internal fun CompactTopBar(
     onTitleClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    Surface(Modifier.fillMaxWidth(), shadowElevation = 0.dp, color = MaterialTheme.colorScheme.surface) {
+    Surface(Modifier.fillMaxWidth().statusBarsPadding(), shadowElevation = 0.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
             Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
