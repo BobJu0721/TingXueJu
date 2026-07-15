@@ -157,7 +157,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
     val darkTheme = isSystemInDarkTheme()
     val colors = if (darkTheme) {
         darkColorScheme(
-            background = Color(0xFF000000),
+            background = Color(0xFF121212),
             surface = Color(0xFF202020),
             surfaceVariant = Color(0xFF2A2A2D),
             onSurface = Color(0xFFF2F2F2),
@@ -386,9 +386,9 @@ internal fun CompactTopBar(
     onTitleClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    Surface(Modifier.fillMaxWidth().statusBarsPadding(), shadowElevation = 0.dp, color = MaterialTheme.colorScheme.surface) {
+    Surface(Modifier.fillMaxWidth(), shadowElevation = 0.dp, color = MaterialTheme.colorScheme.surface) {
         Row(
-            Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+            Modifier.fillMaxWidth().statusBarsPadding().height(48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (navigationIcon != null) navigationIcon() else Spacer(Modifier.width(8.dp))

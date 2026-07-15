@@ -110,7 +110,7 @@ internal fun ChatBackground(path: String, darkTheme: Boolean) {
             bitmap = bitmap.asImageBitmap(),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
+            contentScale = ContentScale.Fit,
         )
         Box(Modifier.fillMaxSize().background(if (darkTheme) Color.Black.copy(alpha = 0.48f) else Color.White.copy(alpha = 0.54f)))
     }

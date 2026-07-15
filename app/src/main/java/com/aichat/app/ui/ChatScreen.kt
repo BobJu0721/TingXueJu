@@ -25,7 +25,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
@@ -61,6 +63,12 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
     var lastOpenedId by remember { mutableStateOf<String?>(null) }
     var autoFollow by remember { mutableStateOf(true) }
     var showScrollToBottom by remember { mutableStateOf(false) }
+    var fullChatWidth by remember { mutableIntStateOf(0) }
+    var fullChatHeight by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val backgroundWidth = with(density) { fullChatWidth.toDp() }
+    val backgroundHeight = with(density) { fullChatHeight.toDp() }
+    val imeBottom = WindowInsets.ime.getBottom(density)
     var actionMessageId by remember(selectedId) { mutableStateOf<String?>(null) }
     var renameDialogVisible by remember(selectedId) { mutableStateOf(false) }
     var renameText by remember(selectedId, conversation?.title) { mutableStateOf(conversation?.title.orEmpty()) }
@@ -92,77 +100,94 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
     LaunchedEffect(messages.lastOrNull()?.id, messages.lastOrNull()?.content, autoFollow) {
         if (messages.isNotEmpty() && autoFollow) listState.scrollToItem(bottomAnchorIndex)
     }
-    Scaffold(
-        contentWindowInsets = WindowInsets(0.dp),
-        topBar = {
-            CompactTopBar(
-                title = conversation?.title?.ifBlank { null } ?: language.pick("聽雪居", "听雪居"),
-                subtitle = settings.model,
-                navigationIcon = { Back(language, viewModel::openConversations) },
-                onTitleClick = {
-                    renameText = conversation?.title.orEmpty()
-                    renameDialogVisible = conversation != null
-                },
-                actions = {
-                    IconButton(onClick = viewModel::openChatInfo) { Icon(Icons.Default.Info, language.pick("對話資訊", "对话信息")) }
-                    IconButton(onClick = viewModel::openModels) { Icon(Icons.Default.Tune, language.pick("選擇模型", "选择模型")) }
-                },
-            )
-        },
-        bottomBar = { MessageComposer(input, streaming, language, viewModel::setInput, viewModel::send, viewModel::stopStreaming) },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            ChatBackground(conversation?.backgroundImagePath.orEmpty(), darkTheme)
-            if (messages.isEmpty()) EmptyState(language.pick("開始聊天", "开始聊天"), language.pick("輸入訊息，或從角色頁建立帶有開場白的對話。", "输入消息，或从角色页建立带有开场白的对话。"))
-            else LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 26.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(messages, key = { it.id }) { message ->
-                    MessageBubble(
-                        message = message,
-                        worldHits = contextMap[message.id]?.let { jsonStrings(it.activatedWorldEntriesJson) }.orEmpty(),
-                        reasoningContent = contextMap[message.id]?.reasoningContent.orEmpty(),
-                        language = language,
-                        bubbleOpacity = conversation?.messageBubbleOpacity ?: 1f,
-                        actionsVisible = actionMessageId == message.id,
-                        onToggleActions = {
-                            actionMessageId = if (actionMessageId == message.id) null else message.id
-                        },
-                        onEdit = viewModel::editMessage,
-                        onResend = {
-                            actionMessageId = null
-                            viewModel.resendFromMessage(it)
-                        },
-                    )
-                }
-                item(key = "chat-bottom-anchor") {
-                    Spacer(Modifier.height(1.dp))
-                }
+    LaunchedEffect(imeBottom) {
+        if (imeBottom > 0 && messages.isNotEmpty()) {
+            yield()
+            listState.scrollToItem(bottomAnchorIndex)
+        }
+    }
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).onSizeChanged { size ->
+        fullChatWidth = maxOf(fullChatWidth, size.width)
+        fullChatHeight = maxOf(fullChatHeight, size.height)
+    }) {
+        if (fullChatWidth > 0 && fullChatHeight > 0) {
+            Box(Modifier.wrapContentSize(Alignment.TopStart, unbounded = true).requiredSize(backgroundWidth, backgroundHeight)) {
+                ChatBackground(conversation?.backgroundImagePath.orEmpty(), darkTheme)
             }
-            AnimatedVisibility(
-                visible = showScrollToBottom,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 16.dp),
-                enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
-                exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
-            ) {
-                SmallFloatingActionButton(
-                    onClick = {
-                        if (messages.isNotEmpty()) {
-                            actionMessageId = null
-                            autoFollow = true
-                            chatScope.launch { listState.animateScrollToItem(bottomAnchorIndex) }
-                        }
+        }
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0.dp),
+            topBar = {
+                CompactTopBar(
+                    title = conversation?.title?.ifBlank { null } ?: language.pick("聽雪居", "听雪居"),
+                    subtitle = settings.model,
+                    navigationIcon = { Back(language, viewModel::openConversations) },
+                    onTitleClick = {
+                        renameText = conversation?.title.orEmpty()
+                        renameDialogVisible = conversation != null
                     },
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                    shape = RoundedCornerShape(24.dp),
+                    actions = {
+                        IconButton(onClick = viewModel::openChatInfo) { Icon(Icons.Default.Info, language.pick("對話資訊", "对话信息")) }
+                        IconButton(onClick = viewModel::openModels) { Icon(Icons.Default.Tune, language.pick("選擇模型", "选择模型")) }
+                    },
+                )
+            },
+            bottomBar = { MessageComposer(input, streaming, language, viewModel::setInput, viewModel::send, viewModel::stopStreaming) },
+        ) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                if (messages.isEmpty()) EmptyState(language.pick("開始聊天", "开始聊天"), language.pick("輸入訊息，或從角色頁建立帶有開場白的對話。", "输入消息，或从角色页建立带有开场白的对话。"))
+                else LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 26.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Icon(Icons.Default.KeyboardArrowDown, language.pick("回到底部", "回到底部"))
+                    items(messages, key = { it.id }) { message ->
+                        MessageBubble(
+                            message = message,
+                            worldHits = contextMap[message.id]?.let { jsonStrings(it.activatedWorldEntriesJson) }.orEmpty(),
+                            reasoningContent = contextMap[message.id]?.reasoningContent.orEmpty(),
+                            language = language,
+                            bubbleOpacity = conversation?.messageBubbleOpacity ?: 1f,
+                            actionsVisible = actionMessageId == message.id,
+                            onToggleActions = {
+                                actionMessageId = if (actionMessageId == message.id) null else message.id
+                            },
+                            onEdit = viewModel::editMessage,
+                            onResend = {
+                                actionMessageId = null
+                                viewModel.resendFromMessage(it)
+                            },
+                        )
+                    }
+                    item(key = "chat-bottom-anchor") {
+                        Spacer(Modifier.height(1.dp))
+                    }
+                }
+                AnimatedVisibility(
+                    visible = showScrollToBottom,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = 16.dp),
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+                    exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+                ) {
+                    SmallFloatingActionButton(
+                        onClick = {
+                            if (messages.isNotEmpty()) {
+                                actionMessageId = null
+                                autoFollow = true
+                                chatScope.launch { listState.animateScrollToItem(bottomAnchorIndex) }
+                            }
+                        },
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        shape = RoundedCornerShape(24.dp),
+                    ) {
+                        Icon(Icons.Default.KeyboardArrowDown, language.pick("回到底部", "回到底部"))
+                    }
                 }
             }
         }
@@ -268,6 +293,7 @@ private fun MessageBubble(
         val bubbleColor = when {
             user && dark -> Color(0xFF2B2B2B)
             user -> Color(0xFFF1F1F1)
+            dark -> MaterialTheme.colorScheme.surface
             else -> MaterialTheme.colorScheme.background
         }
         val bubbleShape = RoundedCornerShape(24.dp)
@@ -278,6 +304,7 @@ private fun MessageBubble(
                 .clickable(enabled = canShowActions, onClick = onToggleActions),
             shape = bubbleShape,
             color = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f)),
+            contentColor = if (dark) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onBackground,
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
         ) {

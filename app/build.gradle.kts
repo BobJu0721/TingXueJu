@@ -13,8 +13,8 @@ android {
         applicationId = "com.aichat.app"
         minSdk = 31
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.8"
+        versionCode = 10
+        versionName = "1.9"
     }
 
     buildFeatures {
