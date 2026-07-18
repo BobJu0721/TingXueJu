@@ -9,6 +9,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import androidx.room.Update
 import androidx.room.Upsert
 import androidx.room.migration.Migration
@@ -32,8 +33,8 @@ interface ChatDao {
     @Query("SELECT * FROM messages WHERE id = :id")
     suspend fun getMessage(id: String): MessageEntity?
 
-    @Query("SELECT * FROM generation_contexts WHERE messageId IN (SELECT id FROM messages WHERE conversationId = :conversationId)")
-    fun observeGenerationContexts(conversationId: String): Flow<List<GenerationContextEntity>>
+    @Query("SELECT * FROM generation_contexts WHERE messageId IN (:messageIds)")
+    fun observeGenerationContexts(messageIds: List<String>): Flow<List<GenerationContextEntity>>
 
     @Upsert
     suspend fun upsertConversation(conversation: ConversationEntity)
@@ -61,6 +62,12 @@ interface ChatDao {
 
     @Upsert
     suspend fun upsertGenerationContext(context: GenerationContextEntity)
+
+    @Transaction
+    suspend fun upsertStreamingState(message: MessageEntity?, context: GenerationContextEntity?) {
+        if (message != null) upsertMessage(message)
+        if (context != null) upsertGenerationContext(context)
+    }
 
     @Query("UPDATE generation_contexts SET reasoningContent = '' WHERE messageId = :messageId")
     suspend fun clearReasoningContent(messageId: String)
@@ -104,6 +111,15 @@ interface ChatDao {
     @Upsert
     suspend fun upsertWorldEntry(entry: WorldEntryEntity)
 
+    @Upsert
+    suspend fun upsertWorldEntries(entries: List<WorldEntryEntity>)
+
+    @Transaction
+    suspend fun upsertWorldSetWithEntries(worldSet: WorldSetEntity, entries: List<WorldEntryEntity>) {
+        upsertWorldSet(worldSet)
+        if (entries.isNotEmpty()) upsertWorldEntries(entries)
+    }
+
     @Delete
     suspend fun deleteWorldEntry(entry: WorldEntryEntity)
 
@@ -118,6 +134,12 @@ interface ChatDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun addConversationWorldSets(links: List<ConversationWorldSetEntity>)
+
+    @Transaction
+    suspend fun replaceConversationWorldSets(conversationId: String, links: List<ConversationWorldSetEntity>) {
+        clearConversationWorldSets(conversationId)
+        if (links.isNotEmpty()) addConversationWorldSets(links)
+    }
 }
 
 @Database(

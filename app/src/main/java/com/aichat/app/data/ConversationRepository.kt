@@ -5,8 +5,8 @@ import kotlinx.coroutines.flow.Flow
 class ConversationRepository(private val dao: ChatDao) {
     fun observeConversations(): Flow<List<ConversationEntity>> = dao.observeConversations()
     fun observeMessages(conversationId: String): Flow<List<MessageEntity>> = dao.observeMessages(conversationId)
-    fun observeGenerationContexts(conversationId: String): Flow<List<GenerationContextEntity>> =
-        dao.observeGenerationContexts(conversationId)
+    fun observeGenerationContexts(messageIds: List<String>): Flow<List<GenerationContextEntity>> =
+        dao.observeGenerationContexts(messageIds)
 
     suspend fun getConversation(id: String): ConversationEntity? = dao.getConversation(id)
     suspend fun upsertConversation(conversation: ConversationEntity) = dao.upsertConversation(conversation)
@@ -24,6 +24,8 @@ class ConversationRepository(private val dao: ChatDao) {
         dao.deleteMessagesAtOrAfter(conversationId, createdAt)
 
     suspend fun upsertGenerationContext(context: GenerationContextEntity) = dao.upsertGenerationContext(context)
+    suspend fun upsertStreamingState(message: MessageEntity?, context: GenerationContextEntity?) =
+        dao.upsertStreamingState(message, context)
     suspend fun clearReasoningContent(messageId: String) = dao.clearReasoningContent(messageId)
 
     suspend fun getConversationWorldSetIds(conversationId: String): List<String> =
@@ -32,4 +34,6 @@ class ConversationRepository(private val dao: ChatDao) {
         dao.clearConversationWorldSets(conversationId)
     suspend fun addConversationWorldSets(links: List<ConversationWorldSetEntity>) =
         dao.addConversationWorldSets(links)
+    suspend fun replaceConversationWorldSets(conversationId: String, links: List<ConversationWorldSetEntity>) =
+        dao.replaceConversationWorldSets(conversationId, links)
 }

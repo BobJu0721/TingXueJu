@@ -9,6 +9,7 @@ import com.aichat.app.data.ConversationWorldSetEntity
 import com.aichat.app.data.MessageEntity
 import com.aichat.app.data.ProfileType
 import com.aichat.app.network.ApiException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -16,10 +17,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -30,28 +34,31 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     private val profileRepository = appContainer.profileRepository
     private val worldInfoRepository = appContainer.worldInfoRepository
     private val settingsRepository = appContainer.settingsRepository
-    private val secretStore = appContainer.secretStore
-    private val api = appContainer.api
-    private val summarizeConversation = appContainer.summarizeConversationUseCase
-    private val streamConversationUseCase = appContainer.streamConversationUseCase
+    private val secretStore by lazy { appContainer.secretStore }
+    private val api by lazy { appContainer.api }
+    private val summarizeConversation by lazy { appContainer.summarizeConversationUseCase }
+    private val streamConversationUseCase by lazy { appContainer.streamConversationUseCase }
 
     val settings = settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
     val conversations = conversationRepository.observeConversations().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val personas = profileRepository.observeProfiles(ProfileType.PERSONA).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val worldSets = worldInfoRepository.observeWorldSets().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val worldEntryCounts = worldInfoRepository.observeWorldEntryCounts().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val personas = profileRepository.observeProfiles(ProfileType.PERSONA).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val worldSets = worldInfoRepository.observeWorldSets().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val worldEntryCounts = worldInfoRepository.observeWorldEntryCounts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _selectedConversationId = MutableStateFlow<String?>(null)
     val selectedConversationId = _selectedConversationId.asStateFlow()
     val messages = _selectedConversationId.flatMapLatest { id ->
         if (id == null) flowOf(emptyList()) else conversationRepository.observeMessages(id)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val generationContexts = _selectedConversationId.flatMapLatest { id ->
-        if (id == null) flowOf(emptyList()) else conversationRepository.observeGenerationContexts(id)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val generationContexts = messages
+        .map { messageList -> messageList.map { it.id } }
+        .distinctUntilChanged()
+        .flatMapLatest { messageIds ->
+        if (messageIds.isEmpty()) flowOf(emptyList()) else conversationRepository.observeGenerationContexts(messageIds)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val activeWorldSetIds = _selectedConversationId.flatMapLatest { id ->
         if (id == null) flowOf(emptyList()) else worldInfoRepository.observeConversationWorldSetIds(id)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _input = MutableStateFlow("")
     val input = _input.asStateFlow()
@@ -148,17 +155,19 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         val conversation = _selectedConversation.value ?: return
         viewModelScope.launch {
             runCatching {
-                val directory = File(appContainer.appContext.filesDir, "chat-backgrounds")
-                directory.mkdirs()
-                val target = File(directory, "${conversation.id}-${UUID.randomUUID()}.img")
-                appContainer.appContext.contentResolver.openInputStream(uri)?.use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
-                } ?: throw IOException(text("無法讀取背景圖片。", "无法读取背景图片。"))
-
-                conversation.backgroundImagePath.takeIf(String::isNotBlank)?.let {
-                    runCatching { File(it).delete() }
+                val targetPath = withContext(Dispatchers.IO) {
+                    val directory = File(appContainer.appContext.filesDir, "chat-backgrounds")
+                    directory.mkdirs()
+                    val target = File(directory, "${conversation.id}-${UUID.randomUUID()}.img")
+                    appContainer.appContext.contentResolver.openInputStream(uri)?.use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    } ?: throw IOException(text("無法讀取背景圖片。", "无法读取背景图片。"))
+                    conversation.backgroundImagePath.takeIf(String::isNotBlank)?.let {
+                        runCatching { File(it).delete() }
+                    }
+                    target.absolutePath
                 }
-                val updated = conversation.copy(backgroundImagePath = target.absolutePath)
+                val updated = conversation.copy(backgroundImagePath = targetPath)
                 conversationRepository.updateConversation(updated)
                 _selectedConversation.value = updated
             }
@@ -170,8 +179,10 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     fun clearConversationBackground() {
         val conversation = _selectedConversation.value ?: return
         viewModelScope.launch {
-            conversation.backgroundImagePath.takeIf(String::isNotBlank)?.let {
-                runCatching { File(it).delete() }
+            withContext(Dispatchers.IO) {
+                conversation.backgroundImagePath.takeIf(String::isNotBlank)?.let {
+                    runCatching { File(it).delete() }
+                }
             }
             val updated = conversation.copy(backgroundImagePath = "")
             conversationRepository.updateConversation(updated)
@@ -192,8 +203,10 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     }
 
     private suspend fun setConversationWorldSets(conversationId: String, ids: Set<String>) {
-        conversationRepository.clearConversationWorldSets(conversationId)
-        if (ids.isNotEmpty()) conversationRepository.addConversationWorldSets(ids.map { ConversationWorldSetEntity(conversationId, it) })
+        conversationRepository.replaceConversationWorldSets(
+            conversationId,
+            ids.map { ConversationWorldSetEntity(conversationId, it) },
+        )
     }
 
 
@@ -337,16 +350,16 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         val id = _selectedConversationId.value ?: return
         if (_isStreaming.value || _isSummarizingConversation.value) return
         val current = settings.value
-        val key = secretStore.get(current.provider)
-        if (key.isBlank() || current.resolvedBaseUrl.isBlank()) {
-            _error.value = UiError(
+        viewModelScope.launch {
+            val key = secretStore.get(current.provider)
+            if (key.isBlank() || current.resolvedBaseUrl.isBlank()) {
+                _error.value = UiError(
                 current.language.pick("缺少 API 設定", "缺少 API 设置"),
                 current.language.pick("請設定 ${current.provider.label} 的 API Key 與網址。", "请设置 ${current.provider.label} 的 API Key 与网址。"),
                 current.language.pick("前往設定頁填寫後再試一次。", "前往设置页填写后再试一次。"),
-            )
-            return
-        }
-        viewModelScope.launch {
+                )
+                return@launch
+            }
             _isSummarizingConversation.value = true
             try {
                 summarizeConversation(id, current, key, keepRecentMessages.coerceIn(1, 100), mode)?.let { _selectedConversation.value = it }

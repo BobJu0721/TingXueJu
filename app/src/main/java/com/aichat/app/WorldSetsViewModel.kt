@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.WorldEntryEntity
 import com.aichat.app.data.WorldSetEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 sealed interface WorldSetsNavigation {
@@ -28,20 +30,20 @@ sealed interface WorldSetsNavigation {
 class WorldSetsViewModel(private val appContainer: AppContainer) : ViewModel() {
     private val worldInfoRepository = appContainer.worldInfoRepository
     private val settingsRepository = appContainer.settingsRepository
-    private val secretStore = appContainer.secretStore
-    private val organizeWorldSet = appContainer.organizeWorldSetUseCase
-    private val saveImportedWorldSet = appContainer.saveImportedWorldSetUseCase
+    private val secretStore by lazy { appContainer.secretStore }
+    private val organizeWorldSet by lazy { appContainer.organizeWorldSetUseCase }
+    private val saveImportedWorldSet by lazy { appContainer.saveImportedWorldSetUseCase }
 
     val settings = settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
-    val worldSets = worldInfoRepository.observeWorldSets().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val worldEntryCounts = worldInfoRepository.observeWorldEntryCounts().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val worldSets = worldInfoRepository.observeWorldSets().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val worldEntryCounts = worldInfoRepository.observeWorldEntryCounts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val worldTemplates = DEFAULT_WORLD_TEMPLATES
 
     private val _editingWorldSet = MutableStateFlow<WorldSetEntity?>(null)
     val editingWorldSet = _editingWorldSet.asStateFlow()
     val editingWorldEntries = _editingWorldSet.flatMapLatest { worldSet ->
         if (worldSet == null) flowOf(emptyList()) else worldInfoRepository.observeWorldEntries(worldSet.id)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _pendingImport = MutableStateFlow<PendingDocumentImport?>(null)
     val pendingImport = _pendingImport.asStateFlow()
@@ -130,9 +132,7 @@ class WorldSetsViewModel(private val appContainer: AppContainer) : ViewModel() {
                 createdAt = now,
                 updatedAt = now,
             )
-            worldInfoRepository.upsertWorldSet(worldSet)
-            template.categories.forEachIndexed { index, category ->
-                worldInfoRepository.upsertWorldEntry(
+            val entries = template.categories.mapIndexed { index, category ->
                     WorldEntryEntity(
                         id = UUID.randomUUID().toString(),
                         worldSetId = worldSet.id,
@@ -141,9 +141,9 @@ class WorldSetsViewModel(private val appContainer: AppContainer) : ViewModel() {
                         content = text("請在這裡填寫$category。", "请在这里填写$category。"),
                         enabled = false,
                         sortOrder = index,
-                    ),
-                )
+                    )
             }
+            worldInfoRepository.upsertWorldSetWithEntries(worldSet, entries)
             _editingWorldSet.value = worldSet
             _navigationEvents.emit(WorldSetsNavigation.WorldSetEdit)
         }
@@ -178,7 +178,7 @@ class WorldSetsViewModel(private val appContainer: AppContainer) : ViewModel() {
     fun importDocument(uri: Uri, target: ImportTarget) {
         if (target != ImportTarget.WORLD_SET) return
         viewModelScope.launch {
-            runCatching { readImportedDocument(appContainer.appContext, uri) }
+            runCatching { withContext(Dispatchers.IO) { readImportedDocument(appContainer.appContext, uri) } }
                 .onSuccess { document -> _pendingImport.value = PendingDocumentImport(target, document) }
                 .onFailure {
                     val language = settings.value.language
@@ -191,6 +191,7 @@ class WorldSetsViewModel(private val appContainer: AppContainer) : ViewModel() {
         val pending = _pendingImport.value ?: return
         if (pending.target != ImportTarget.WORLD_SET) return
         val current = settings.value
+        viewModelScope.launch {
         val apiKey = secretStore.get(current.provider)
         if (apiKey.isBlank() || current.resolvedBaseUrl.isBlank()) {
             _pendingImport.value = null
@@ -199,11 +200,10 @@ class WorldSetsViewModel(private val appContainer: AppContainer) : ViewModel() {
                 current.language.pick("AI 整理文件需要目前供應商的 API Key 與網址。", "AI 整理文件需要当前供应商的 API Key 与网址。"),
                 current.language.pick("請先前往設定頁完成 API 設定。", "请先前往设置页完成 API 设置。"),
             )
-            return
+            return@launch
         }
         _pendingImport.value = null
         _isImporting.value = true
-        viewModelScope.launch {
             runCatching {
                 val draft = organizeWorldSet(pending.document.text, current, apiKey)
                 val worldSet = saveImportedWorldSet(draft, current.language.pick("匯入的世界設定", "导入的世界设定"))

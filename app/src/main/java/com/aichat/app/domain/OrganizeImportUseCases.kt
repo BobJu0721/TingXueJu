@@ -58,9 +58,7 @@ class SaveImportedWorldSetUseCase(private val worldInfoRepository: WorldInfoRepo
             updatedAt = now,
             overview = draft.overview.trim(),
         )
-        worldInfoRepository.upsertWorldSet(worldSet)
-        draft.entries.forEachIndexed { index, entry ->
-            worldInfoRepository.upsertWorldEntry(
+        val entries = draft.entries.mapIndexed { index, entry ->
                 WorldEntryEntity(
                     id = UUID.randomUUID().toString(),
                     worldSetId = worldSet.id,
@@ -69,9 +67,9 @@ class SaveImportedWorldSetUseCase(private val worldInfoRepository: WorldInfoRepo
                     content = entry.content,
                     alwaysInclude = entry.alwaysInclude,
                     sortOrder = index,
-                ),
-            )
+                )
         }
+        worldInfoRepository.upsertWorldSetWithEntries(worldSet, entries)
         return worldSet
     }
 }

@@ -1,6 +1,7 @@
 package com.aichat.app.ui
 
-import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -42,10 +43,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.*
 import com.aichat.app.data.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import java.io.File
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 internal fun Modifier.clippedClickable(shape: Shape, onClick: () -> Unit): Modifier =
@@ -103,17 +108,39 @@ internal fun manualSummaryModeLabel(mode: ManualSummaryMode, language: AppLangua
 
 
 @Composable
-internal fun ChatBackground(path: String, darkTheme: Boolean) {
-    val bitmap = remember(path) { path.takeIf(String::isNotBlank)?.let(BitmapFactory::decodeFile) }
-    if (bitmap != null) {
+internal fun ChatBackground(path: String, darkTheme: Boolean, targetWidthPx: Int, targetHeightPx: Int) {
+    val bitmap by produceState<Bitmap?>(null, path, targetWidthPx, targetHeightPx) {
+        value = if (path.isBlank() || targetWidthPx <= 0 || targetHeightPx <= 0) {
+            null
+        } else {
+            withContext(Dispatchers.IO) { decodeChatBackground(path, targetWidthPx, targetHeightPx) }
+        }
+    }
+    val image = remember(bitmap) { bitmap?.asImageBitmap() }
+    if (image != null) {
         Image(
-            bitmap = bitmap.asImageBitmap(),
+            bitmap = image,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Fit,
         )
         Box(Modifier.fillMaxSize().background(if (darkTheme) Color.Black.copy(alpha = 0.48f) else Color.White.copy(alpha = 0.54f)))
     }
+}
+
+private fun decodeChatBackground(path: String, targetWidthPx: Int, targetHeightPx: Int): Bitmap? = runCatching {
+    ImageDecoder.decodeBitmap(ImageDecoder.createSource(File(path))) { decoder, info, _ ->
+        val (width, height) = fittedImageSize(info.size.width, info.size.height, targetWidthPx, targetHeightPx)
+        if (width != info.size.width || height != info.size.height) decoder.setTargetSize(width, height)
+        decoder.allocator = ImageDecoder.ALLOCATOR_HARDWARE
+    }
+}.getOrNull()
+
+internal fun fittedImageSize(sourceWidth: Int, sourceHeight: Int, targetWidth: Int, targetHeight: Int): Pair<Int, Int> {
+    if (sourceWidth <= 0 || sourceHeight <= 0 || targetWidth <= 0 || targetHeight <= 0) return 1 to 1
+    val scale = min(targetWidth.toFloat() / sourceWidth, targetHeight.toFloat() / sourceHeight).coerceAtMost(1f)
+    return (sourceWidth * scale).roundToInt().coerceAtLeast(1) to
+        (sourceHeight * scale).roundToInt().coerceAtLeast(1)
 }
 
 

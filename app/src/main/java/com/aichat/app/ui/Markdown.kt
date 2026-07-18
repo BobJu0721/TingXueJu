@@ -54,10 +54,15 @@ internal fun LazyListState.isNearBottom(lastIndex: Int, thresholdPx: Int = 96): 
 
 @Composable
 internal fun MarkdownText(markdown: String) {
-    val blocks = markdown.split("```")
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { blocks.forEachIndexed { index, block ->
-        if (index % 2 == 1) Surface(color = MaterialTheme.colorScheme.inverseSurface) { Text(block.substringAfter('\n', block).trimEnd(), Modifier.fillMaxWidth().padding(10.dp), color = MaterialTheme.colorScheme.inverseOnSurface, fontFamily = FontFamily.Monospace) }
-        else if (block.isNotBlank()) Text(inlineMarkdown(block.trim()))
+    val blocks = remember(markdown) {
+        markdown.split("```").mapIndexedNotNull { index, block ->
+            if (index % 2 == 1) true to AnnotatedString(block.substringAfter('\n', block).trimEnd())
+            else block.takeIf(String::isNotBlank)?.let { false to inlineMarkdown(it.trim()) }
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { blocks.forEach { (isCode, block) ->
+        if (isCode) Surface(color = MaterialTheme.colorScheme.inverseSurface) { Text(block, Modifier.fillMaxWidth().padding(10.dp), color = MaterialTheme.colorScheme.inverseOnSurface, fontFamily = FontFamily.Monospace) }
+        else Text(block)
     } }
 }
 

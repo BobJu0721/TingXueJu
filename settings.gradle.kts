@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "TingXueJu"
 include(":app")
+include(":baselineprofile")

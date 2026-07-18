@@ -45,7 +45,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import kotlin.math.roundToInt
 @Composable
-internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage) {
+internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onBack: () -> Unit) {
     val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val personas by viewModel.personas.collectAsStateWithLifecycle()
@@ -73,7 +73,7 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage) {
     val backgroundLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::setConversationBackground)
     }
-    Scaffold(topBar = { CompactTopBar(language.pick("對話資訊", "对话信息"), navigationIcon = { Back(language, viewModel::openCurrentChat) }) }) { padding ->
+    Scaffold(topBar = { CompactTopBar(language.pick("對話資訊", "对话信息"), navigationIcon = { Back(language, onBack) }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 InfoSection {

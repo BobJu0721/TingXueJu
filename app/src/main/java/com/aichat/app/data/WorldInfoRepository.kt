@@ -16,5 +16,7 @@ class WorldInfoRepository(private val dao: ChatDao) {
 
     suspend fun getWorldEntries(worldSetIds: List<String>): List<WorldEntryEntity> = dao.getWorldEntries(worldSetIds)
     suspend fun upsertWorldEntry(entry: WorldEntryEntity) = dao.upsertWorldEntry(entry)
+    suspend fun upsertWorldSetWithEntries(worldSet: WorldSetEntity, entries: List<WorldEntryEntity>) =
+        dao.upsertWorldSetWithEntries(worldSet, entries)
     suspend fun deleteWorldEntry(entry: WorldEntryEntity) = dao.deleteWorldEntry(entry)
 }

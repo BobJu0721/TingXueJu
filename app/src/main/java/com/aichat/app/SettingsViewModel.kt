@@ -6,12 +6,14 @@ import com.aichat.app.data.AppLanguage
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.CustomEndpointPreset
 import com.aichat.app.data.Provider
+import com.aichat.app.data.SecretStore
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class SettingsUiState(
@@ -20,12 +22,13 @@ data class SettingsUiState(
     val models: List<String> = emptyList(),
     val isLoadingModels: Boolean = false,
     val error: UiError? = null,
+    val savedKeyIds: Set<String> = emptySet(),
 )
 
 class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
     private val settingsRepository = appContainer.settingsRepository
     private val secretStore = appContainer.secretStore
-    private val listModels = appContainer.listModelsUseCase
+    private val listModels by lazy { appContainer.listModelsUseCase }
 
     private val settings = settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
     private val customEndpointPresets = settingsRepository.customEndpointPresets.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -33,11 +36,19 @@ class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
     private val _models = MutableStateFlow<List<String>>(emptyList())
     private val _isLoadingModels = MutableStateFlow(false)
     private val _error = MutableStateFlow<UiError?>(null)
+    private val _savedKeyIds = MutableStateFlow<Set<String>>(emptySet())
     private val _navigationEvents = MutableSharedFlow<Screen>()
     val navigationEvents = _navigationEvents.asSharedFlow()
-    val uiState = combine(settings, customEndpointPresets, _models, _isLoadingModels, _error) { settings, presets, models, isLoadingModels, error ->
-        SettingsUiState(settings, presets, models, isLoadingModels, error)
+    private val endpointConfiguration = combine(settings, customEndpointPresets, _savedKeyIds) { settings, presets, savedKeyIds ->
+        Triple(settings, presets, savedKeyIds)
+    }
+    val uiState = combine(endpointConfiguration, _models, _isLoadingModels, _error) { configuration, models, isLoadingModels, error ->
+        SettingsUiState(configuration.first, configuration.second, models, isLoadingModels, error, configuration.third)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, SettingsUiState())
+
+    init {
+        viewModelScope.launch { _savedKeyIds.value = secretStore.savedKeyIds() }
+    }
 
     fun clearError() { _error.value = null }
 
@@ -63,7 +74,10 @@ class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
         if (provider == Provider.CUSTOM) return
         viewModelScope.launch {
             val current = settings.value
-            if (apiKey.isNotBlank()) secretStore.put(provider, apiKey.trim())
+            if (apiKey.isNotBlank()) {
+                secretStore.put(provider, apiKey.trim())
+                _savedKeyIds.update { it + SecretStore.providerStorageKey(provider) }
+            }
             if (makeActive) {
                 settingsRepository.save(current.copy(provider = provider))
                 _navigationEvents.emit(Screen.SETTINGS)
@@ -75,7 +89,10 @@ class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
         viewModelScope.launch {
             val preset = CustomEndpointPreset(id, name.trim(), baseUrl.trim())
             settingsRepository.saveCustomEndpointPreset(preset)
-            if (apiKey.isNotBlank()) secretStore.putCustomEndpointPreset(id, apiKey.trim())
+            if (apiKey.isNotBlank()) {
+                secretStore.putCustomEndpointPreset(id, apiKey.trim())
+                _savedKeyIds.update { it + SecretStore.customEndpointStorageKey(id) }
+            }
             if (makeActive) {
                 val savedKey = if (apiKey.isNotBlank()) apiKey.trim() else secretStore.getCustomEndpointPreset(id)
                 if (savedKey.isNotBlank()) secretStore.put(Provider.CUSTOM, savedKey)
@@ -90,15 +107,12 @@ class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
             val preset = customEndpointPresets.value.firstOrNull { it.id == id }
             settingsRepository.deleteCustomEndpointPreset(id)
             secretStore.removeCustomEndpointPreset(id)
+            _savedKeyIds.update { it - SecretStore.customEndpointStorageKey(id) }
             if (settings.value.provider == Provider.CUSTOM && preset?.baseUrl?.trimEnd('/') == settings.value.customBaseUrl.trimEnd('/')) {
                 settingsRepository.save(settings.value.copy(provider = Provider.OPENROUTER, customBaseUrl = ""))
             }
         }
     }
-
-    fun currentApiKey(provider: Provider): String = secretStore.get(provider)
-
-    fun currentCustomEndpointPresetApiKey(id: String): String = secretStore.getCustomEndpointPreset(id)
 
     fun refreshModels() {
         if (_isLoadingModels.value) return

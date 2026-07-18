@@ -36,14 +36,14 @@ class AppContainer(context: Context) {
     val profileRepository = ProfileRepository(dao)
     val worldInfoRepository = WorldInfoRepository(dao)
     val settingsRepository = SettingsRepository(appContext)
-    val secretStore = SecretStore(appContext)
-    val api = AiApiClient()
-    val listModelsUseCase = ListModelsUseCase(api)
-    val organizeProfileUseCase = OrganizeProfileUseCase(api)
-    val organizeWorldSetUseCase = OrganizeWorldSetUseCase(api)
-    val saveImportedWorldSetUseCase = SaveImportedWorldSetUseCase(worldInfoRepository)
-    val streamConversationUseCase = StreamConversationUseCase(conversationRepository, profileRepository, worldInfoRepository, api)
-    val summarizeConversationUseCase = SummarizeConversationUseCase(conversationRepository, api)
+    val secretStore by lazy { SecretStore(appContext) }
+    val api by lazy { AiApiClient() }
+    val listModelsUseCase by lazy { ListModelsUseCase(api) }
+    val organizeProfileUseCase by lazy { OrganizeProfileUseCase(api) }
+    val organizeWorldSetUseCase by lazy { OrganizeWorldSetUseCase(api) }
+    val saveImportedWorldSetUseCase by lazy { SaveImportedWorldSetUseCase(worldInfoRepository) }
+    val streamConversationUseCase by lazy { StreamConversationUseCase(conversationRepository, profileRepository, worldInfoRepository, api) }
+    val summarizeConversationUseCase by lazy { SummarizeConversationUseCase(conversationRepository, api) }
 }
 
 class AppViewModelFactory(private val appContainer: AppContainer) : ViewModelProvider.Factory {

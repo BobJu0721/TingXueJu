@@ -167,7 +167,7 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun WorldSetEditScreen(viewModel: WorldSetsViewModel, language: AppLanguage) {
+internal fun WorldSetEditScreen(viewModel: WorldSetsViewModel, language: AppLanguage, onBack: () -> Unit) {
     val worldSet by viewModel.editingWorldSet.collectAsStateWithLifecycle()
     val entries by viewModel.editingWorldEntries.collectAsStateWithLifecycle()
     var name by remember(worldSet?.id) { mutableStateOf(worldSet?.name.orEmpty()) }
@@ -186,7 +186,7 @@ internal fun WorldSetEditScreen(viewModel: WorldSetsViewModel, language: AppLang
     }
 
     Scaffold(
-        topBar = { CompactTopBar(language.pick("編輯世界設定集", "编辑世界设定集"), navigationIcon = { Back(language, viewModel::openWorldSets) }) },
+        topBar = { CompactTopBar(language.pick("編輯世界設定集", "编辑世界设定集"), navigationIcon = { Back(language, onBack) }) },
         floatingActionButton = {
             if (worldSet != null) {
                 FloatingActionButton(

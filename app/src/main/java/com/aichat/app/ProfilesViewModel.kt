@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.ProfileEntity
 import com.aichat.app.data.ProfileType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 sealed interface ProfilesNavigation {
     data object Characters : ProfilesNavigation
@@ -22,11 +24,11 @@ sealed interface ProfilesNavigation {
 class ProfilesViewModel(private val appContainer: AppContainer) : ViewModel() {
     private val profileRepository = appContainer.profileRepository
     private val settingsRepository = appContainer.settingsRepository
-    private val secretStore = appContainer.secretStore
-    private val organizeProfile = appContainer.organizeProfileUseCase
+    private val secretStore by lazy { appContainer.secretStore }
+    private val organizeProfile by lazy { appContainer.organizeProfileUseCase }
     val settings = settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
-    val characters = profileRepository.observeProfiles(ProfileType.CHARACTER).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val personas = profileRepository.observeProfiles(ProfileType.PERSONA).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val characters = profileRepository.observeProfiles(ProfileType.CHARACTER).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val personas = profileRepository.observeProfiles(ProfileType.PERSONA).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _editingProfile = MutableStateFlow<ProfileDraft?>(null)
     val editingProfile = _editingProfile.asStateFlow()
     private val _pendingImport = MutableStateFlow<PendingDocumentImport?>(null)
@@ -91,7 +93,7 @@ class ProfilesViewModel(private val appContainer: AppContainer) : ViewModel() {
     fun importDocument(uri: Uri, target: ImportTarget) {
         val type = target.profileType() ?: return
         viewModelScope.launch {
-            runCatching { readImportedDocument(appContainer.appContext, uri) }
+            runCatching { withContext(Dispatchers.IO) { readImportedDocument(appContainer.appContext, uri) } }
                 .onSuccess { document ->
                     val directDraft = if (document.name.endsWith(".json", true)) profileDraftFromOwnJson(document.text, type) else null
                     if (directDraft != null) {
@@ -111,6 +113,7 @@ class ProfilesViewModel(private val appContainer: AppContainer) : ViewModel() {
         val pending = _pendingImport.value ?: return
         val type = pending.target.profileType() ?: return
         val current = settings.value
+        viewModelScope.launch {
         val apiKey = secretStore.get(current.provider)
         if (apiKey.isBlank() || current.resolvedBaseUrl.isBlank()) {
             _pendingImport.value = null
@@ -119,11 +122,10 @@ class ProfilesViewModel(private val appContainer: AppContainer) : ViewModel() {
                 current.language.pick("AI 整理文件需要目前供應商的 API Key 與網址。", "AI 整理文件需要当前供应商的 API Key 与网址。"),
                 current.language.pick("請先前往設定頁完成 API 設定。", "请先前往设置页完成 API 设置。"),
             )
-            return
+            return@launch
         }
         _pendingImport.value = null
         _isImporting.value = true
-        viewModelScope.launch {
             runCatching {
                 _editingProfile.value = organizeProfile(pending.document.text, type, current, apiKey)
                 _navigationEvents.emit(ProfilesNavigation.ProfileEdit)

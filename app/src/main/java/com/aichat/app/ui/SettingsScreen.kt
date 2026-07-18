@@ -83,48 +83,45 @@ internal fun SettingsScreen(viewModel: SettingsViewModel, onRootSelected: (Scree
 }
 
 @Composable
-internal fun ApiSettingsScreen(viewModel: SettingsViewModel, language: AppLanguage) {
+internal fun ApiSettingsScreen(
+    viewModel: SettingsViewModel,
+    language: AppLanguage,
+    onBack: () -> Unit,
+    onEditBuiltIn: (Provider) -> Unit,
+    onEditCustom: (String) -> Unit,
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val settings = uiState.settings
     val presets = uiState.customEndpointPresets
-    var editor by remember { mutableStateOf<ApiEndpointEditor?>(null) }
-    val title = if (editor == null) language.pick("API 設定", "API 设置") else language.pick("API 端點", "API 端点")
     Scaffold(
         topBar = {
             CompactTopBar(
-                title,
-                navigationIcon = { Back(language) { if (editor == null) viewModel.closeApiSettings() else editor = null } },
+                language.pick("API 設定", "API 设置"),
+                navigationIcon = { Back(language, onBack) },
             )
         },
     ) { padding ->
-        if (editor == null) {
-            ApiEndpointList(settings, presets, viewModel, language, Modifier.fillMaxSize().padding(padding)) { editor = it }
-        } else {
-            ApiEndpointDetail(
-                editor = editor!!,
-                isExistingCustom = (editor as? ApiEndpointEditor.Custom)?.let { custom -> presets.any { it.id == custom.id } } == true,
-                viewModel = viewModel,
-                language = language,
-                modifier = Modifier.fillMaxSize().padding(padding),
-                onClose = { editor = null },
-            )
-        }
+        ApiEndpointList(
+            settings,
+            presets,
+            uiState.savedKeyIds,
+            language,
+            Modifier.fillMaxSize().padding(padding),
+            onEditBuiltIn,
+            onEditCustom,
+        )
     }
-}
-
-private sealed interface ApiEndpointEditor {
-    data class BuiltIn(val provider: Provider) : ApiEndpointEditor
-    data class Custom(val id: String, val name: String, val baseUrl: String) : ApiEndpointEditor
 }
 
 @Composable
 private fun ApiEndpointList(
     settings: AppSettings,
     presets: List<CustomEndpointPreset>,
-    viewModel: SettingsViewModel,
+    savedKeyIds: Set<String>,
     language: AppLanguage,
     modifier: Modifier,
-    onEdit: (ApiEndpointEditor) -> Unit,
+    onEditBuiltIn: (Provider) -> Unit,
+    onEditCustom: (String) -> Unit,
 ) {
     val activeCustom = presets.firstOrNull { settings.provider == Provider.CUSTOM && it.baseUrl.trimEnd('/') == settings.customBaseUrl.trimEnd('/') }
     val activeName = if (settings.provider == Provider.CUSTOM) activeCustom?.name ?: language.pick("自訂端點", "自定义端点") else settings.provider.label
@@ -148,21 +145,21 @@ private fun ApiEndpointList(
                 title = provider.label,
                 detail = provider.baseUrl,
                 badge = if (settings.provider == provider) language.pick("目前使用", "当前使用") else language.pick("內建", "内置"),
-                keySaved = viewModel.currentApiKey(provider).isNotBlank(),
+                keySaved = SecretStore.providerStorageKey(provider) in savedKeyIds,
                 language = language,
-            ) { onEdit(ApiEndpointEditor.BuiltIn(provider)) }
+            ) { onEditBuiltIn(provider) }
         }
         presets.forEach { preset ->
             ApiEndpointCard(
                 title = preset.name,
                 detail = preset.baseUrl,
                 badge = if (settings.provider == Provider.CUSTOM && preset.baseUrl.trimEnd('/') == settings.customBaseUrl.trimEnd('/')) language.pick("目前使用", "当前使用") else language.pick("自訂", "自定义"),
-                keySaved = viewModel.currentCustomEndpointPresetApiKey(preset.id).isNotBlank(),
+                keySaved = SecretStore.customEndpointStorageKey(preset.id) in savedKeyIds,
                 language = language,
-            ) { onEdit(ApiEndpointEditor.Custom(preset.id, preset.name, preset.baseUrl)) }
+            ) { onEditCustom(preset.id) }
         }
         OutlinedButton(
-            onClick = { onEdit(ApiEndpointEditor.Custom(UUID.randomUUID().toString(), "", "")) },
+            onClick = { onEditCustom(UUID.randomUUID().toString()) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
         ) {
@@ -201,29 +198,61 @@ private fun ApiEndpointCard(
 }
 
 @Composable
-private fun ApiEndpointDetail(
-    editor: ApiEndpointEditor,
-    isExistingCustom: Boolean,
+internal fun BuiltInEndpointScreen(
     viewModel: SettingsViewModel,
+    provider: Provider,
     language: AppLanguage,
-    modifier: Modifier,
-    onClose: () -> Unit,
+    onBack: () -> Unit,
 ) {
-    when (editor) {
-        is ApiEndpointEditor.BuiltIn -> BuiltInEndpointDetail(editor.provider, viewModel, language, modifier)
-        is ApiEndpointEditor.Custom -> CustomEndpointDetail(editor, isExistingCustom, viewModel, language, modifier, onClose)
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    Scaffold(
+        topBar = { CompactTopBar(language.pick("API 端點", "API 端点"), navigationIcon = { Back(language, onBack) }) },
+    ) { padding ->
+        BuiltInEndpointDetail(
+            provider,
+            SecretStore.providerStorageKey(provider) in uiState.savedKeyIds,
+            viewModel,
+            language,
+            Modifier.fillMaxSize().padding(padding),
+        )
+    }
+}
+
+@Composable
+internal fun CustomEndpointScreen(
+    viewModel: SettingsViewModel,
+    id: String,
+    language: AppLanguage,
+    onBack: () -> Unit,
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val preset = uiState.customEndpointPresets.firstOrNull { it.id == id }
+    Scaffold(
+        topBar = { CompactTopBar(language.pick("API 端點", "API 端点"), navigationIcon = { Back(language, onBack) }) },
+    ) { padding ->
+        CustomEndpointDetail(
+            id = id,
+            initialName = preset?.name.orEmpty(),
+            initialBaseUrl = preset?.baseUrl.orEmpty(),
+            isExisting = preset != null,
+            hasSavedKey = SecretStore.customEndpointStorageKey(id) in uiState.savedKeyIds,
+            viewModel = viewModel,
+            language = language,
+            modifier = Modifier.fillMaxSize().padding(padding),
+            onClose = onBack,
+        )
     }
 }
 
 @Composable
 private fun BuiltInEndpointDetail(
     provider: Provider,
+    hasSavedKey: Boolean,
     viewModel: SettingsViewModel,
     language: AppLanguage,
     modifier: Modifier,
 ) {
     var key by remember(provider) { mutableStateOf("") }
-    val hasSavedKey = viewModel.currentApiKey(provider).isNotBlank()
     Column(modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(provider.label, fontWeight = FontWeight.Bold)
         Text(provider.baseUrl, style = MaterialTheme.typography.bodySmall)
@@ -245,37 +274,39 @@ private fun BuiltInEndpointDetail(
 
 @Composable
 private fun CustomEndpointDetail(
-    endpoint: ApiEndpointEditor.Custom,
+    id: String,
+    initialName: String,
+    initialBaseUrl: String,
     isExisting: Boolean,
+    hasSavedKey: Boolean,
     viewModel: SettingsViewModel,
     language: AppLanguage,
     modifier: Modifier,
     onClose: () -> Unit,
 ) {
-    var name by remember(endpoint.id) { mutableStateOf(endpoint.name) }
-    var baseUrl by remember(endpoint.id) { mutableStateOf(endpoint.baseUrl) }
-    var key by remember(endpoint.id) { mutableStateOf("") }
-    val hasSavedKey = isExisting && viewModel.currentCustomEndpointPresetApiKey(endpoint.id).isNotBlank()
-    val canSave = name.isNotBlank() && baseUrl.isNotBlank() && (key.isNotBlank() || hasSavedKey)
+    var name by remember(id, initialName) { mutableStateOf(initialName) }
+    var baseUrl by remember(id, initialBaseUrl) { mutableStateOf(initialBaseUrl) }
+    var key by remember(id) { mutableStateOf("") }
+    val canSave = name.isNotBlank() && baseUrl.isNotBlank() && (key.isNotBlank() || (isExisting && hasSavedKey))
     Column(modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("名稱", "名称")) }, singleLine = true)
         OutlinedTextField(baseUrl, { baseUrl = it }, Modifier.fillMaxWidth(), label = { Text("Base URL") }, singleLine = true, supportingText = { Text(language.pick("HTTP 可以使用，但傳送前會警告可能外洩。", "HTTP 可以使用，但发送前会警告可能外泄。")) })
         OutlinedTextField(key, { key = it }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text(if (hasSavedKey) language.pick("已保存；留白可沿用", "已保存；留白可沿用") else language.pick("填入 API Key", "填入 API Key")) })
         Button(
-            onClick = { viewModel.saveCustomEndpoint(endpoint.id, name, baseUrl, key, makeActive = false); key = "" },
+            onClick = { viewModel.saveCustomEndpoint(id, name, baseUrl, key, makeActive = false); key = "" },
             modifier = Modifier.fillMaxWidth(),
             enabled = canSave,
             shape = RoundedCornerShape(24.dp),
         ) { Text(language.pick("儲存", "保存")) }
         Button(
-            onClick = { viewModel.saveCustomEndpoint(endpoint.id, name, baseUrl, key, makeActive = true); key = "" },
+            onClick = { viewModel.saveCustomEndpoint(id, name, baseUrl, key, makeActive = true); key = "" },
             modifier = Modifier.fillMaxWidth(),
             enabled = canSave,
             shape = RoundedCornerShape(24.dp),
         ) { Text(language.pick("設為目前使用", "设为当前使用")) }
         if (isExisting) {
             OutlinedButton(
-                onClick = { viewModel.deleteCustomEndpoint(endpoint.id); onClose() },
+                onClick = { viewModel.deleteCustomEndpoint(id); onClose() },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
             ) { Text(language.pick("刪除", "删除")) }

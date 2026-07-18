@@ -1,5 +1,9 @@
 package com.aichat.app
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -41,10 +45,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel as composeViewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import com.aichat.app.data.AppLanguage
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.ProfileType
+import com.aichat.app.data.Provider
 import com.aichat.app.ui.*
 import kotlinx.coroutines.launch
 
@@ -59,12 +65,18 @@ private object AppRoute {
     const val HOME = "home"
     const val CHAT = "chat"
     const val API_SETTINGS = "api_settings"
+    const val API_SETTINGS_LIST = "api_settings/list"
+    const val API_SETTINGS_BUILT_IN = "api_settings/built_in/{provider}"
+    const val API_SETTINGS_CUSTOM = "api_settings/custom/{id}"
     const val MODELS = "models"
     const val PROFILE_EDIT = "profile_edit"
     const val WORLD_SETS = "world_sets"
     const val WORLD_SET_EDIT = "world_set_edit"
     const val NEW_CHAT = "new_chat"
     const val CHAT_INFO = "chat_info"
+
+    fun apiSettingsBuiltIn(provider: Provider) = "api_settings/built_in/${provider.name}"
+    fun apiSettingsCustom(id: String) = "api_settings/custom/$id"
 }
 @Composable
 fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
@@ -98,7 +110,10 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
             }
             Screen.CHAT -> {
                 if (!navController.popBackStack(AppRoute.CHAT, inclusive = false)) {
-                    navController.navigate(AppRoute.CHAT) { launchSingleTop = true }
+                    navController.navigate(AppRoute.CHAT) {
+                        popUpTo(AppRoute.HOME)
+                        launchSingleTop = true
+                    }
                 }
             }
             Screen.MODELS -> {
@@ -155,7 +170,8 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
     }
 
     val darkTheme = isSystemInDarkTheme()
-    val colors = if (darkTheme) {
+    val colors = remember(darkTheme) {
+        if (darkTheme) {
         darkColorScheme(
             background = Color(0xFF121212),
             surface = Color(0xFF202020),
@@ -200,9 +216,17 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
             outlineVariant = Color(0xFFD0D0D0),
         )
     }
+    }
     MaterialTheme(colorScheme = colors) {
         Box(Modifier.fillMaxSize()) {
-            NavHost(navController = navController, startDestination = AppRoute.HOME) {
+            NavHost(
+                navController = navController,
+                startDestination = AppRoute.HOME,
+                enterTransition = { slideInHorizontally { it } },
+                exitTransition = { ExitTransition.None },
+                popEnterTransition = { EnterTransition.None },
+                popExitTransition = { slideOutHorizontally { it } },
+            ) {
                 composable(AppRoute.HOME) {
                     RootPager(
                         chatViewModel,
@@ -216,14 +240,34 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                         { selectedRoot = it },
                     )
                 }
-                composable(AppRoute.CHAT) { ChatScreen(chatViewModel, language) }
-                composable(AppRoute.API_SETTINGS) { ApiSettingsScreen(settingsViewModel, language) }
-                composable(AppRoute.MODELS) { ModelsScreen(settingsViewModel, settings.model, language, chatViewModel::openCurrentChat) }
-                composable(AppRoute.PROFILE_EDIT) { ProfileEditScreen(profilesViewModel, language) }
-                composable(AppRoute.WORLD_SETS) { WorldSetsScreen(worldSetsViewModel, { navigateTo(Screen.LIBRARY) }, language) }
-                composable(AppRoute.WORLD_SET_EDIT) { WorldSetEditScreen(worldSetsViewModel, language) }
-                composable(AppRoute.NEW_CHAT) { NewChatScreen(newChatViewModel, { navigateTo(Screen.CONVERSATIONS) }, language) }
-                composable(AppRoute.CHAT_INFO) { ChatInfoScreen(chatViewModel, language) }
+                composable(AppRoute.CHAT) { ChatScreen(chatViewModel, language) { navController.navigateUp() } }
+                navigation(startDestination = AppRoute.API_SETTINGS_LIST, route = AppRoute.API_SETTINGS) {
+                    composable(AppRoute.API_SETTINGS_LIST) {
+                        ApiSettingsScreen(
+                            settingsViewModel,
+                            language,
+                            onBack = { navController.navigateUp() },
+                            onEditBuiltIn = { navController.navigate(AppRoute.apiSettingsBuiltIn(it)) },
+                            onEditCustom = { navController.navigate(AppRoute.apiSettingsCustom(it)) },
+                        )
+                    }
+                    composable(AppRoute.API_SETTINGS_BUILT_IN) { entry ->
+                        val provider = entry.arguments?.getString("provider")
+                            ?.let { name -> Provider.entries.firstOrNull { it.name == name } }
+                            ?: return@composable
+                        BuiltInEndpointScreen(settingsViewModel, provider, language) { navController.navigateUp() }
+                    }
+                    composable(AppRoute.API_SETTINGS_CUSTOM) { entry ->
+                        val id = entry.arguments?.getString("id") ?: return@composable
+                        CustomEndpointScreen(settingsViewModel, id, language) { navController.navigateUp() }
+                    }
+                }
+                composable(AppRoute.MODELS) { ModelsScreen(settingsViewModel, settings.model, language) { navController.navigateUp() } }
+                composable(AppRoute.PROFILE_EDIT) { ProfileEditScreen(profilesViewModel, language) { navController.navigateUp() } }
+                composable(AppRoute.WORLD_SETS) { WorldSetsScreen(worldSetsViewModel, { navController.navigateUp() }, language) }
+                composable(AppRoute.WORLD_SET_EDIT) { WorldSetEditScreen(worldSetsViewModel, language) { navController.navigateUp() } }
+                composable(AppRoute.NEW_CHAT) { NewChatScreen(newChatViewModel, { navController.navigateUp() }, language) }
+                composable(AppRoute.CHAT_INFO) { ChatInfoScreen(chatViewModel, language) { navController.navigateUp() } }
             }
             if (isProfileImporting || isWorldSetImporting) {
                 LoadingOverlay(language.pick("AI 甇??渡??辣...", "AI 甇??渡??辣..."))

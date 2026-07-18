@@ -86,7 +86,7 @@ internal fun ProfileRow(profile: ProfileEntity, canChat: Boolean, viewModel: Pro
 
 
 @Composable
-internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLanguage) {
+internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLanguage, onBack: () -> Unit) {
     val source by viewModel.editingProfile.collectAsStateWithLifecycle()
     val draft = source ?: return
     var name by remember { mutableStateOf(draft.name) }
@@ -99,7 +99,7 @@ internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLangua
     var instructions by remember { mutableStateOf(draft.extraInstructions) }
     var showHelp by remember { mutableStateOf(false) }
     val title = if (draft.type == ProfileType.CHARACTER) language.pick("角色設定", "角色设置") else language.pick("Persona 設定", "Persona 设置")
-    Scaffold(topBar = { CompactTopBar(title, navigationIcon = { Back(language) { viewModel.closeProfileEditor(draft.type) } }) }) { padding ->
+    Scaffold(topBar = { CompactTopBar(title, navigationIcon = { Back(language, onBack) }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("名稱", "名称")) }, supportingText = { Text(language.pick("例如：艾莉亞、本人、第三人稱旁白", "例如：艾莉亚、本人、第三人称旁白")) })
             OutlinedTextField(summary, { summary = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("簡介", "简介")) }, minLines = 2)

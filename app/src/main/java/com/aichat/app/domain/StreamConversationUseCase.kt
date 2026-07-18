@@ -11,6 +11,8 @@ import com.aichat.app.network.AiApiClient
 import com.aichat.app.pick
 import com.aichat.app.toJsonStrings
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.util.UUID
 
@@ -37,42 +39,80 @@ class StreamConversationUseCase(
         )
         val assistant = MessageEntity(UUID.randomUUID().toString(), conversationId, "assistant", "", System.currentTimeMillis() + 1)
         conversationRepository.upsertMessage(assistant)
-        var content = ""
-        var reasoningContent = ""
+        val content = StringBuilder()
+        val reasoningContent = StringBuilder()
+        val activatedEntriesJson = toJsonStrings(prompt.activatedEntries.map { it.title })
+        val throttle = StreamWriteThrottle(STREAM_WRITE_INTERVAL_NANOS)
+        var contentDirty = false
+        var reasoningDirty = false
+
+        suspend fun flush(force: Boolean = false, includeActivatedEntries: Boolean = false) {
+            if (!contentDirty && !reasoningDirty && !includeActivatedEntries) return
+            if (!throttle.shouldWrite(System.nanoTime(), force)) return
+            val message = if (contentDirty || includeActivatedEntries) assistant.copy(content = content.toString()) else null
+            val context = if (reasoningDirty || includeActivatedEntries) {
+                GenerationContextEntity(
+                    messageId = assistant.id,
+                    activatedWorldEntriesJson = if (includeActivatedEntries) activatedEntriesJson else "[]",
+                    reasoningContent = reasoningContent.toString(),
+                )
+            } else {
+                null
+            }
+            conversationRepository.upsertStreamingState(message, context)
+            contentDirty = false
+            reasoningDirty = false
+        }
+
         try {
             api.streamChat(
                 settings = settings,
                 apiKey = key,
                 messages = prompt.messages,
                 onToken = { token ->
-                    content += token
-                    conversationRepository.upsertMessage(assistant.copy(content = content))
+                    content.append(token)
+                    contentDirty = true
+                    flush()
                 },
                 onReasoningToken = { token ->
-                    reasoningContent += token
-                    conversationRepository.upsertGenerationContext(
-                        GenerationContextEntity(assistant.id, reasoningContent = reasoningContent),
-                    )
+                    reasoningContent.append(token)
+                    reasoningDirty = true
+                    flush()
                 },
             )
+            flush(force = true, includeActivatedEntries = true)
             if (content.isBlank()) {
                 throw IOException(settings.language.pick(
                     "\u0041\u0050\u0049 \u6c92\u6709\u56de\u50b3\u6587\u5b57\u5167\u5bb9\u3002",
                     "\u0041\u0050\u0049 \u6ca1\u6709\u8fd4\u56de\u6587\u5b57\u5185\u5bb9\u3002",
                 ))
             }
-            conversationRepository.upsertGenerationContext(
-                GenerationContextEntity(
-                    messageId = assistant.id,
-                    activatedWorldEntriesJson = toJsonStrings(prompt.activatedEntries.map { it.title }),
-                    reasoningContent = reasoningContent,
-                ),
-            )
         } catch (_: CancellationException) {
-            if (content.isBlank()) conversationRepository.deleteMessage(assistant.id)
+            withContext(NonCancellable) {
+                if (content.isBlank()) {
+                    conversationRepository.deleteMessage(assistant.id)
+                } else {
+                    flush(force = true, includeActivatedEntries = true)
+                }
+            }
         } catch (error: Throwable) {
             conversationRepository.deleteMessage(assistant.id)
             throw error
         }
+    }
+
+    private companion object {
+        const val STREAM_WRITE_INTERVAL_NANOS = 50_000_000L
+    }
+}
+
+internal class StreamWriteThrottle(private val intervalNanos: Long) {
+    private var lastWriteNanos: Long? = null
+
+    fun shouldWrite(nowNanos: Long, force: Boolean = false): Boolean {
+        val last = lastWriteNanos
+        if (!force && last != null && nowNanos - last < intervalNanos) return false
+        lastWriteNanos = nowNanos
+        return true
     }
 }

@@ -29,8 +29,8 @@ class NewChatViewModel(appContainer: AppContainer) : ViewModel() {
     private val settingsRepository = appContainer.settingsRepository
 
     val settings = settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
-    val personas = profileRepository.observeProfiles(ProfileType.PERSONA).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val worldSets = worldInfoRepository.observeWorldSets().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val personas = profileRepository.observeProfiles(ProfileType.PERSONA).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val worldSets = worldInfoRepository.observeWorldSets().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _newChatCharacter = MutableStateFlow<ProfileEntity?>(null)
     val newChatCharacter = _newChatCharacter.asStateFlow()
@@ -94,9 +94,9 @@ class NewChatViewModel(appContainer: AppContainer) : ViewModel() {
     }
 
     private suspend fun setConversationWorldSets(conversationId: String, ids: Set<String>) {
-        conversationRepository.clearConversationWorldSets(conversationId)
-        if (ids.isNotEmpty()) {
-            conversationRepository.addConversationWorldSets(ids.map { ConversationWorldSetEntity(conversationId, it) })
-        }
+        conversationRepository.replaceConversationWorldSets(
+            conversationId,
+            ids.map { ConversationWorldSetEntity(conversationId, it) },
+        )
     }
 }

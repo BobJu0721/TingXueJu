@@ -49,11 +49,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import kotlin.math.roundToInt
 @Composable
-internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
+internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack: () -> Unit) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val contexts by viewModel.generationContexts.collectAsStateWithLifecycle()
-    val input by viewModel.input.collectAsStateWithLifecycle()
-    val streaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val darkTheme = isSystemInDarkTheme()
     val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
@@ -72,7 +70,11 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
     var actionMessageId by remember(selectedId) { mutableStateOf<String?>(null) }
     var renameDialogVisible by remember(selectedId) { mutableStateOf(false) }
     var renameText by remember(selectedId, conversation?.title) { mutableStateOf(conversation?.title.orEmpty()) }
-    val contextMap = remember(contexts) { contexts.associateBy { it.messageId } }
+    val contextMap = remember(contexts) {
+        contexts.associate { context ->
+            context.messageId to (jsonStrings(context.activatedWorldEntriesJson) to context.reasoningContent)
+        }
+    }
     val bottomAnchorIndex = messages.size
     LaunchedEffect(listState, messages.size) {
         snapshotFlow {
@@ -112,7 +114,12 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
     }) {
         if (fullChatWidth > 0 && fullChatHeight > 0) {
             Box(Modifier.wrapContentSize(Alignment.TopStart, unbounded = true).requiredSize(backgroundWidth, backgroundHeight)) {
-                ChatBackground(conversation?.backgroundImagePath.orEmpty(), darkTheme)
+                ChatBackground(
+                    conversation?.backgroundImagePath.orEmpty(),
+                    darkTheme,
+                    fullChatWidth,
+                    fullChatHeight,
+                )
             }
         }
         Scaffold(
@@ -123,7 +130,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
                 CompactTopBar(
                     title = conversation?.title?.ifBlank { null } ?: language.pick("聽雪居", "听雪居"),
                     subtitle = settings.model,
-                    navigationIcon = { Back(language, viewModel::openConversations) },
+                    navigationIcon = { Back(language, onBack) },
                     onTitleClick = {
                         renameText = conversation?.title.orEmpty()
                         renameDialogVisible = conversation != null
@@ -134,7 +141,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
                     },
                 )
             },
-            bottomBar = { MessageComposer(input, streaming, language, viewModel::setInput, viewModel::send, viewModel::stopStreaming) },
+            bottomBar = { MessageComposer(viewModel, language) },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 if (messages.isEmpty()) EmptyState(language.pick("開始聊天", "开始聊天"), language.pick("輸入訊息，或從角色頁建立帶有開場白的對話。", "输入消息，或从角色页建立带有开场白的对话。"))
@@ -147,8 +154,8 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
                     items(messages, key = { it.id }) { message ->
                         MessageBubble(
                             message = message,
-                            worldHits = contextMap[message.id]?.let { jsonStrings(it.activatedWorldEntriesJson) }.orEmpty(),
-                            reasoningContent = contextMap[message.id]?.reasoningContent.orEmpty(),
+                            worldHits = contextMap[message.id]?.first.orEmpty(),
+                            reasoningContent = contextMap[message.id]?.second.orEmpty(),
                             language = language,
                             bubbleOpacity = conversation?.messageBubbleOpacity ?: 1f,
                             actionsVisible = actionMessageId == message.id,
@@ -225,13 +232,15 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage) {
 
 
 @Composable
-private fun MessageComposer(input: String, streaming: Boolean, language: AppLanguage, onInput: (String) -> Unit, onSend: () -> Unit, onStop: () -> Unit) {
+private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage) {
+    val input by viewModel.input.collectAsStateWithLifecycle()
+    val streaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     Surface(Modifier.imePadding(), color = MaterialTheme.colorScheme.background) { Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
         OutlinedTextField(
             input,
-            onInput,
+            viewModel::setInput,
             Modifier.weight(1f),
             placeholder = { Text(language.pick("輸入訊息", "输入消息")) },
             maxLines = 5,
@@ -244,9 +253,9 @@ private fun MessageComposer(input: String, streaming: Boolean, language: AppLang
             ),
         )
         IconButton(onClick = {
-            if (streaming) onStop()
+            if (streaming) viewModel.stopStreaming()
             else {
-                onSend()
+                viewModel.send()
                 focusManager.clearFocus()
                 keyboard?.hide()
             }

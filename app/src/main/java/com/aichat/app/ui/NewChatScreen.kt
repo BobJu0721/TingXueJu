@@ -62,7 +62,9 @@ internal fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, lang
             item { Text(language.pick("角色：${character?.name ?: "一般聊天"}", "角色：${character?.name ?: "一般聊天"}"), style = MaterialTheme.typography.titleMedium) }
             if (greetings.size > 1) {
                 item { Text(language.pick("選擇角色開場白", "选择角色开场白"), fontWeight = FontWeight.Bold) }
-                items(greetings) { option -> SelectRow(option, greeting == option) { viewModel.selectNewChatGreeting(option) } }
+                itemsIndexed(greetings, key = { index, _ -> index }) { _, option ->
+                    SelectRow(option, greeting == option) { viewModel.selectNewChatGreeting(option) }
+                }
             }
             item { Text(language.pick("選擇 Persona（可略過）", "选择 Persona（可略过）"), fontWeight = FontWeight.Bold) }
             item { SelectRow(language.pick("不指定 Persona", "不指定 Persona"), personaId == null) { viewModel.selectNewChatPersona(null) } }
