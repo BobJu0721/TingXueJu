@@ -79,6 +79,12 @@ v1.10 已完成單元測試、Release 建置與 Android 15 實機驗證。本版
 - [完整更新公告](更新公告.md)
 - [所有版本與 APK](https://github.com/BobJu0721/TingXueJu/releases)
 
+## 問題回報
+
+發現 Bug 或有功能建議，請前往 [GitHub Issues](https://github.com/BobJu0721/TingXueJu/issues) 回報。
+
+回報時請附上 App 版本、Android 版本、手機型號、重現步驟與相關截圖。請勿公開 API Key 或私人對話內容。
+
 ## 開發建置
 
 需要 JDK 17 與 Android SDK 35。Debug APK 輸出位置：
