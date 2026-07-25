@@ -1,6 +1,7 @@
 package com.aichat.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ModelSearchTest {
@@ -34,6 +35,16 @@ class ModelSearchTest {
     @Test
     fun unknownQueryReturnsEmptyList() {
         assertEquals(emptyList<String>(), filterModels(models, "missing"))
+    }
+
+    @Test
+    fun manualModelCandidateRequiresANewNonBlankId() {
+        assertNull(manualModelCandidate(models, "  "))
+        assertNull(manualModelCandidate(models, "qwen/qwen3-32b"))
+        assertEquals(
+            "@cf/moonshotai/kimi-k2.6",
+            manualModelCandidate(models, "  @cf/moonshotai/kimi-k2.6  "),
+        )
     }
 }
 

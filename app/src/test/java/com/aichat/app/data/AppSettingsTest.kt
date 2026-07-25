@@ -14,6 +14,20 @@ class AppSettingsTest {
     }
 
     @Test
+    fun cloudflareBuildsAccountSpecificUrls() {
+        val settings = AppSettings(
+            provider = Provider.CLOUDFLARE,
+            cloudflareAccountId = " 0123456789abcdef ",
+        )
+
+        assertEquals(
+            "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef/ai/v1",
+            settings.resolvedBaseUrl,
+        )
+        assertEquals("${settings.resolvedBaseUrl.removeSuffix("/v1")}/models/search?format=openrouter&per_page=100", settings.resolvedModelsUrl)
+    }
+
+    @Test
     fun agnesProviderUsesOfficialEndpointAndModel() {
         assertEquals("https://apihub.agnes-ai.com/v1", Provider.AGNES.baseUrl)
         assertEquals("agnes-2.0-flash", Provider.AGNES.defaultModel)
@@ -69,6 +83,17 @@ class AppSettingsTest {
         assertFalse(AppSettings(provider = Provider.CUSTOM, customBaseUrl = "https://example.com/v1").usesUnsafeHttp)
     }
 
+    @Test
+    fun conversationDefaultsToAutomaticReasoning() {
+        val conversation = ConversationEntity(
+            id = "conversation",
+            title = "Title",
+            createdAt = 1,
+            updatedAt = 1,
+        )
+
+        assertEquals(ReasoningMode.AUTO, conversation.reasoningMode)
+    }
     @Test
     fun unknownProviderFallsBackToOpenRouter() {
         assertEquals(Provider.OPENROUTER, Provider.fromId("missing"))

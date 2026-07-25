@@ -16,6 +16,7 @@ class SettingsRepository(private val context: Context) {
     private object Keys {
         val provider = stringPreferencesKey("provider")
         val customBaseUrl = stringPreferencesKey("custom_base_url")
+        val cloudflareAccountId = stringPreferencesKey("cloudflare_account_id")
         val model = stringPreferencesKey("model")
         val darkTheme = booleanPreferencesKey("dark_theme")
         val language = stringPreferencesKey("language")
@@ -27,6 +28,7 @@ class SettingsRepository(private val context: Context) {
         AppSettings(
             provider = provider,
             customBaseUrl = preferences[Keys.customBaseUrl].orEmpty(),
+            cloudflareAccountId = preferences[Keys.cloudflareAccountId].orEmpty(),
             model = preferences[Keys.model] ?: provider.defaultModel,
             darkTheme = preferences[Keys.darkTheme] ?: false,
             language = AppLanguage.fromId(preferences[Keys.language]),
@@ -41,6 +43,7 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[Keys.provider] = settings.provider.name
             preferences[Keys.customBaseUrl] = settings.customBaseUrl
+            preferences[Keys.cloudflareAccountId] = settings.cloudflareAccountId
             preferences[Keys.model] = settings.model
             preferences[Keys.darkTheme] = settings.darkTheme
             preferences[Keys.language] = settings.language.name

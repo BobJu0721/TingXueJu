@@ -14,6 +14,11 @@ enum class Provider(
     GROQ("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
     CEREBRAS("Cerebras", "https://api.cerebras.ai/v1", "llama-3.3-70b"),
     AGNES("Agnes", "https://apihub.agnes-ai.com/v1", "agnes-2.0-flash"),
+    CLOUDFLARE(
+        "Cloudflare Workers AI",
+        "https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1",
+        "@cf/meta/llama-3.1-8b-instruct",
+    ),
     CUSTOM("自訂端點", "", "");
 
     companion object {
@@ -31,15 +36,33 @@ enum class AppLanguage(val label: String) {
     }
 }
 
+enum class ReasoningMode {
+    AUTO,
+    ON,
+    OFF,
+}
+
 data class AppSettings(
     val provider: Provider = Provider.OPENROUTER,
     val customBaseUrl: String = "",
+    val cloudflareAccountId: String = "",
     val model: String = Provider.OPENROUTER.defaultModel,
     val darkTheme: Boolean = false,
     val language: AppLanguage = AppLanguage.TRADITIONAL_CHINESE,
 ) {
     val resolvedBaseUrl: String
-        get() = (if (provider == Provider.CUSTOM) customBaseUrl else provider.baseUrl).trimEnd('/')
+        get() = when (provider) {
+            Provider.CUSTOM -> customBaseUrl
+            Provider.CLOUDFLARE -> provider.baseUrl.replace("{ACCOUNT_ID}", cloudflareAccountId.trim())
+            else -> provider.baseUrl
+        }.trimEnd('/')
+
+    val resolvedModelsUrl: String
+        get() = if (provider == Provider.CLOUDFLARE) {
+            "${resolvedBaseUrl.removeSuffix("/v1")}/models/search?format=openrouter&per_page=100"
+        } else {
+            "$resolvedBaseUrl/models"
+        }
 
     val usesUnsafeHttp: Boolean
         get() = resolvedBaseUrl.startsWith("http://", ignoreCase = true)
@@ -162,6 +185,7 @@ data class ConversationEntity(
     val summaryThroughAt: Long = 0,
     val backgroundImagePath: String = "",
     val messageBubbleOpacity: Float = 1f,
+    val reasoningMode: ReasoningMode = ReasoningMode.AUTO,
 )
 
 @Entity(

@@ -70,17 +70,26 @@ class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
         }
     }
 
-    fun saveBuiltInEndpoint(provider: Provider, apiKey: String, makeActive: Boolean) {
+    fun saveBuiltInEndpoint(provider: Provider, apiKey: String, cloudflareAccountId: String = "", makeActive: Boolean) {
         if (provider == Provider.CUSTOM) return
+        val accountId = cloudflareAccountId.trim()
+        if (provider == Provider.CLOUDFLARE && accountId.isBlank()) return
         viewModelScope.launch {
             val current = settings.value
             if (apiKey.isNotBlank()) {
                 secretStore.put(provider, apiKey.trim())
                 _savedKeyIds.update { it + SecretStore.providerStorageKey(provider) }
             }
+            val updated = if (provider == Provider.CLOUDFLARE) {
+                current.copy(cloudflareAccountId = accountId)
+            } else {
+                current
+            }
             if (makeActive) {
-                settingsRepository.save(current.copy(provider = provider))
+                settingsRepository.save(updated.copy(provider = provider))
                 _navigationEvents.emit(Screen.SETTINGS)
+            } else if (updated != current) {
+                settingsRepository.save(updated)
             }
         }
     }
@@ -127,6 +136,7 @@ class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
                 )
                 return@launch
             }
+            _models.value = emptyList()
             _isLoadingModels.value = true
             runCatching { listModels(current, key) }
                 .onSuccess { _models.value = it }
@@ -136,8 +146,10 @@ class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
     }
 
     fun chooseModel(model: String) {
+        val normalizedModel = model.trim()
+        if (normalizedModel.isEmpty()) return
         viewModelScope.launch {
-            settingsRepository.save(settings.value.copy(model = model))
+            settingsRepository.save(settings.value.copy(model = normalizedModel))
             _navigationEvents.emit(Screen.CHAT)
         }
     }

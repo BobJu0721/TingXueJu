@@ -33,7 +33,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -158,7 +157,14 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
                             style = MaterialTheme.typography.bodySmall,
                         )
                         if (current.summary.isNotBlank()) {
-                            Text(current.summary, maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                current.summary,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 180.dp)
+                                    .verticalScroll(rememberScrollState()),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                         Box {
                             OutlinedButton(onClick = { summaryModeMenu = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {

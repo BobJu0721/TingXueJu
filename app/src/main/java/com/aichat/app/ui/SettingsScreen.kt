@@ -135,7 +135,7 @@ private fun ApiEndpointList(
         ) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(activeName, fontWeight = FontWeight.Bold)
-                Text(if (settings.provider == Provider.CUSTOM) settings.resolvedBaseUrl else settings.provider.baseUrl, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (settings.provider == Provider.CUSTOM || settings.provider == Provider.CLOUDFLARE) settings.resolvedBaseUrl else settings.provider.baseUrl, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         Text(language.pick("模型在聊天頁右上角選擇。", "模型在聊天页右上角选择。"), style = MaterialTheme.typography.bodySmall)
@@ -210,6 +210,7 @@ internal fun BuiltInEndpointScreen(
     ) { padding ->
         BuiltInEndpointDetail(
             provider,
+            uiState.settings.cloudflareAccountId,
             SecretStore.providerStorageKey(provider) in uiState.savedKeyIds,
             viewModel,
             language,
@@ -247,26 +248,37 @@ internal fun CustomEndpointScreen(
 @Composable
 private fun BuiltInEndpointDetail(
     provider: Provider,
+    initialCloudflareAccountId: String,
     hasSavedKey: Boolean,
     viewModel: SettingsViewModel,
     language: AppLanguage,
     modifier: Modifier,
 ) {
     var key by remember(provider) { mutableStateOf("") }
+    var accountId by remember(provider, initialCloudflareAccountId) { mutableStateOf(initialCloudflareAccountId) }
+    val cloudflareReady = provider != Provider.CLOUDFLARE || accountId.isNotBlank()
+    val endpointUrl = if (provider == Provider.CLOUDFLARE) {
+        provider.baseUrl.replace("{ACCOUNT_ID}", accountId.trim().ifBlank { "{ACCOUNT_ID}" })
+    } else {
+        provider.baseUrl
+    }
     Column(modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(provider.label, fontWeight = FontWeight.Bold)
-        Text(provider.baseUrl, style = MaterialTheme.typography.bodySmall)
+        Text(endpointUrl, style = MaterialTheme.typography.bodySmall)
+        if (provider == Provider.CLOUDFLARE) {
+            OutlinedTextField(accountId, { accountId = it }, Modifier.fillMaxWidth(), label = { Text("Account ID") }, singleLine = true)
+        }
         OutlinedTextField(key, { key = it }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text(if (hasSavedKey) language.pick("已保存；留白可沿用", "已保存；留白可沿用") else language.pick("填入 API Key", "填入 API Key")) })
         Button(
-            onClick = { viewModel.saveBuiltInEndpoint(provider, key, makeActive = false); key = "" },
+            onClick = { viewModel.saveBuiltInEndpoint(provider, key, accountId, makeActive = false); key = "" },
             modifier = Modifier.fillMaxWidth(),
-            enabled = key.isNotBlank(),
+            enabled = cloudflareReady && (key.isNotBlank() || (provider == Provider.CLOUDFLARE && hasSavedKey)),
             shape = RoundedCornerShape(24.dp),
         ) { Text(language.pick("儲存", "保存")) }
         Button(
-            onClick = { viewModel.saveBuiltInEndpoint(provider, key, makeActive = true); key = "" },
+            onClick = { viewModel.saveBuiltInEndpoint(provider, key, accountId, makeActive = true); key = "" },
             modifier = Modifier.fillMaxWidth(),
-            enabled = key.isNotBlank() || hasSavedKey,
+            enabled = cloudflareReady && (key.isNotBlank() || hasSavedKey),
             shape = RoundedCornerShape(24.dp),
         ) { Text(language.pick("設為目前使用", "设为当前使用")) }
     }
@@ -316,15 +328,70 @@ private fun CustomEndpointDetail(
 
 
 @Composable
-internal fun ModelsScreen(viewModel: SettingsViewModel, selected: String, language: AppLanguage, onBack: () -> Unit) {
+internal fun ModelsScreen(
+    viewModel: SettingsViewModel,
+    selected: String,
+    reasoningMode: ReasoningMode?,
+    language: AppLanguage,
+    onReasoningModeChange: (ReasoningMode) -> Unit,
+    onBack: () -> Unit,
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val models = uiState.models
     val loading = uiState.isLoadingModels
-    var query by remember { mutableStateOf("") }; val filtered = remember(models, query) { filterModels(models, query) }
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(models, query) { filterModels(models, query) }
+    val manualModel = remember(models, query) { manualModelCandidate(models, query) }
+    val visibleModels = remember(filtered, manualModel) {
+        buildList {
+            manualModel?.let { add(it to true) }
+            filtered.forEach { add(it to false) }
+        }
+    }
     Scaffold(topBar = { CompactTopBar(language.pick("選擇模型", "选择模型"), navigationIcon = { Back(language, onBack) }, actions = { IconButton(onClick = viewModel::refreshModels) { Icon(Icons.Default.Refresh, language.pick("重新載入", "重新载入")) } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            if (models.isNotEmpty()) OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(10.dp), placeholder = { Text(language.pick("搜尋模型", "搜索模型")) }, leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, language.pick("清除", "清除")) } })
-            when { loading -> LoadingOverlay(language.pick("載入模型...", "载入模型...")); models.isEmpty() -> EmptyState(language.pick("尚未取得模型", "尚未取得模型"), language.pick("可重新載入，或先檢查 API 設定。", "可重新载入，或先检查 API 设置。")); filtered.isEmpty() -> EmptyState(language.pick("找不到符合的模型", "找不到符合的模型"), language.pick("清除搜尋文字後再試一次。", "清除搜索文字后再试一次。")); else -> LazyColumn { items(filtered, key = { it }) { model -> Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clippedClickable(RoundedCornerShape(24.dp)) { viewModel.chooseModel(model) }, shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) { Row(Modifier.fillMaxWidth().padding(14.dp)) { Text(model, Modifier.weight(1f)); if (model == selected) Icon(Icons.Default.Check, language.pick("目前模型", "目前模型")) } } } } }
+            if (reasoningMode != null) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(language.pick("思考模式", "思考模式"), fontWeight = FontWeight.Bold)
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        ReasoningMode.entries.forEachIndexed { index, mode ->
+                            SegmentedButton(
+                                selected = reasoningMode == mode,
+                                onClick = { onReasoningModeChange(mode) },
+                                shape = SegmentedButtonDefaults.itemShape(index, ReasoningMode.entries.size),
+                                label = {
+                                    Text(
+                                        when (mode) {
+                                            ReasoningMode.AUTO -> language.pick("自動", "自动")
+                                            ReasoningMode.ON -> language.pick("開啟", "开启")
+                                            ReasoningMode.OFF -> language.pick("關閉", "关闭")
+                                        },
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(10.dp), placeholder = { Text(language.pick("搜尋或輸入模型 ID", "搜索或输入模型 ID")) }, leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, language.pick("清除", "清除")) } })
+            when {
+                visibleModels.isNotEmpty() -> LazyColumn {
+                    items(visibleModels, key = { it.first }) { (model, isManual) ->
+                        Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clippedClickable(RoundedCornerShape(24.dp)) { viewModel.chooseModel(model) }, shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (isManual) language.pick("使用「$model」", "使用「$model」") else model, Modifier.weight(1f))
+                                if (model == selected) Icon(Icons.Default.Check, language.pick("目前模型", "目前模型"))
+                            }
+                        }
+                    }
+                }
+                loading -> LoadingOverlay(language.pick("載入模型...", "载入模型..."))
+                models.isEmpty() -> EmptyState(language.pick("尚未取得模型", "尚未取得模型"), language.pick("輸入完整模型 ID，或重新載入清單。", "输入完整模型 ID，或重新载入列表。"))
+                else -> EmptyState(language.pick("找不到符合的模型", "找不到符合的模型"), language.pick("可直接使用輸入的完整模型 ID。", "可直接使用输入的完整模型 ID。"))
+            }
         }
     }
 }

@@ -38,7 +38,8 @@ data class WorldTemplate(
 internal fun mapError(error: Throwable, title: String, language: AppLanguage): UiError = when (error) {
     is ApiException -> when {
         error.isContextLengthError -> UiError(language.pick("上下文過長", "上下文过长"), language.pick("API 回報 ${error.statusCode}：${error.message}", "API 返回 ${error.statusCode}：${error.message}"), language.pick("可裁切舊訊息並重試，或建立新對話。", "可裁切旧消息并重试，或建立新对话。"), ErrorKind.CONTEXT_LENGTH)
-        error.statusCode == 401 || error.statusCode == 403 -> UiError(language.pick("API Key 無效", "API Key 无效"), language.pick("API 回報 ${error.statusCode}：${error.message}", "API 返回 ${error.statusCode}：${error.message}"), language.pick("請檢查 Key、模型與供應商設定。", "请检查 Key、模型与供应商设置。"))
+        error.statusCode == 401 -> UiError(language.pick("API Key 無效", "API Key 无效"), language.pick("API 回報 401：${error.message}", "API 返回 401：${error.message}"), language.pick("請檢查 Key 與供應商設定。", "请检查 Key 与供应商设置。"))
+        error.statusCode == 403 -> UiError(language.pick("權限或方案限制", "权限或方案限制"), language.pick("API 回報 403：${error.message}", "API 返回 403：${error.message}"), language.pick("請檢查帳號權限、方案與模型是否可用。", "请检查账号权限、方案与模型是否可用。"))
         error.statusCode == 429 -> UiError(language.pick("額度不足或請求過快", "额度不足或请求过快"), language.pick("API 回報 429：${error.message}", "API 返回 429：${error.message}"), language.pick("請稍後再試，或切換模型與供應商。", "请稍后再试，或切换模型与供应商。"))
         else -> UiError(title, language.pick("API 回報 ${error.statusCode}：${error.message}", "API 返回 ${error.statusCode}：${error.message}"), language.pick("請檢查模型與供應商設定。", "请检查模型与供应商设置。"))
     }

@@ -69,6 +69,7 @@ class StreamConversationUseCase(
                 settings = settings,
                 apiKey = key,
                 messages = prompt.messages,
+                reasoningMode = conversation.reasoningMode,
                 onToken = { token ->
                     content.append(token)
                     contentDirty = true

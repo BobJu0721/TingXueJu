@@ -1,7 +1,14 @@
 package com.aichat.app
 
+import androidx.activity.BackEventCompat
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.OnBackPressedDispatcher
+import androidx.activity.OnBackPressedDispatcherOwner
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
@@ -25,6 +32,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +49,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel as composeViewModel
@@ -53,6 +63,45 @@ import com.aichat.app.data.ProfileType
 import com.aichat.app.data.Provider
 import com.aichat.app.ui.*
 import kotlinx.coroutines.launch
+
+@Composable
+private fun HalfProgressBackBridge(
+    enabled: Boolean,
+    source: OnBackPressedDispatcher?,
+    target: OnBackPressedDispatcher,
+) {
+    if (!enabled || source == null) return
+
+    DisposableEffect(source, target) {
+        val callback = object : OnBackPressedCallback(true) {
+            private fun half(event: BackEventCompat) = BackEventCompat(
+                event.touchX,
+                event.touchY,
+                event.progress * 0.5f,
+                event.swipeEdge,
+            )
+
+            override fun handleOnBackStarted(backEvent: BackEventCompat) =
+                target.dispatchOnBackStarted(half(backEvent))
+
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) =
+                target.dispatchOnBackProgressed(half(backEvent))
+
+            override fun handleOnBackCancelled() = target.dispatchOnBackCancelled()
+
+            override fun handleOnBackPressed() {
+                isEnabled = false
+                try {
+                    target.onBackPressed()
+                } finally {
+                    isEnabled = true
+                }
+            }
+        }
+        source.addCallback(callback)
+        onDispose(callback::remove)
+    }
+}
 
 internal val DOCUMENT_TYPES = arrayOf(
     "text/plain",
@@ -88,6 +137,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
     val settingsUiState by settingsViewModel.uiState.collectAsStateWithLifecycle()
     val settings = settingsUiState.settings
     val chatError by chatViewModel.error.collectAsStateWithLifecycle()
+    val selectedConversation by chatViewModel.selectedConversation.collectAsStateWithLifecycle()
     val settingsError = settingsUiState.error
     val profilesError by profilesViewModel.error.collectAsStateWithLifecycle()
     val worldSetsError by worldSetsViewModel.error.collectAsStateWithLifecycle()
@@ -98,6 +148,21 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
     val isWorldSetImporting by worldSetsViewModel.isImporting.collectAsStateWithLifecycle()
     val language = settings.language
     val navController = rememberNavController()
+    val parentBackDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var hasBackTarget by remember { mutableStateOf(false) }
+    val navBackDispatcher = remember(parentBackDispatcher) {
+        OnBackPressedDispatcher(
+            fallbackOnBackPressed = { parentBackDispatcher?.onBackPressed() },
+            onHasEnabledCallbacksChanged = { hasBackTarget = it },
+        )
+    }
+    val navBackDispatcherOwner = remember(lifecycleOwner, navBackDispatcher) {
+        object : OnBackPressedDispatcherOwner {
+            override val lifecycle = lifecycleOwner.lifecycle
+            override val onBackPressedDispatcher = navBackDispatcher
+        }
+    }
     var selectedRoot by remember { mutableStateOf(Screen.CONVERSATIONS) }
     fun navigateTo(target: Screen) {
         when (target) {
@@ -217,6 +282,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
         )
     }
     }
+    CompositionLocalProvider(LocalOnBackPressedDispatcherOwner provides navBackDispatcherOwner) {
     MaterialTheme(colorScheme = colors) {
         Box(Modifier.fillMaxSize()) {
             NavHost(
@@ -225,7 +291,9 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                 enterTransition = { slideInHorizontally { it } },
                 exitTransition = { ExitTransition.None },
                 popEnterTransition = { EnterTransition.None },
-                popExitTransition = { slideOutHorizontally { it } },
+                popExitTransition = {
+                    slideOutHorizontally(animationSpec = tween(easing = LinearEasing)) { it }
+                },
             ) {
                 composable(AppRoute.HOME) {
                     RootPager(
@@ -262,13 +330,27 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                         CustomEndpointScreen(settingsViewModel, id, language) { navController.navigateUp() }
                     }
                 }
-                composable(AppRoute.MODELS) { ModelsScreen(settingsViewModel, settings.model, language) { navController.navigateUp() } }
+                composable(AppRoute.MODELS) {
+                    ModelsScreen(
+                        viewModel = settingsViewModel,
+                        selected = settings.model,
+                        reasoningMode = selectedConversation?.reasoningMode,
+                        language = language,
+                        onReasoningModeChange = chatViewModel::updateConversationReasoningMode,
+                        onBack = { navController.navigateUp() },
+                    )
+                }
                 composable(AppRoute.PROFILE_EDIT) { ProfileEditScreen(profilesViewModel, language) { navController.navigateUp() } }
                 composable(AppRoute.WORLD_SETS) { WorldSetsScreen(worldSetsViewModel, { navController.navigateUp() }, language) }
                 composable(AppRoute.WORLD_SET_EDIT) { WorldSetEditScreen(worldSetsViewModel, language) { navController.navigateUp() } }
                 composable(AppRoute.NEW_CHAT) { NewChatScreen(newChatViewModel, { navController.navigateUp() }, language) }
                 composable(AppRoute.CHAT_INFO) { ChatInfoScreen(chatViewModel, language) { navController.navigateUp() } }
             }
+            HalfProgressBackBridge(
+                enabled = hasBackTarget,
+                source = parentBackDispatcher,
+                target = navBackDispatcher,
+            )
             if (isProfileImporting || isWorldSetImporting) {
                 LoadingOverlay(language.pick("AI 甇??渡??辣...", "AI 甇??渡??辣..."))
             }
@@ -337,6 +419,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                 dismissButton = { TextButton(onClick = chatViewModel::dismissUnsafeHttp) { Text(language.pick("\u53d6\u6d88", "\u53d6\u6d88")) } },
             )
         }
+    }
     }
 }
 @Composable

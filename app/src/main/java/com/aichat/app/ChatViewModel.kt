@@ -8,6 +8,7 @@ import com.aichat.app.data.ConversationEntity
 import com.aichat.app.data.ConversationWorldSetEntity
 import com.aichat.app.data.MessageEntity
 import com.aichat.app.data.ProfileType
+import com.aichat.app.data.ReasoningMode
 import com.aichat.app.network.ApiException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -202,6 +203,15 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         }
     }
 
+    fun updateConversationReasoningMode(mode: ReasoningMode) {
+        val conversation = _selectedConversation.value ?: return
+        if (conversation.reasoningMode == mode) return
+        viewModelScope.launch {
+            val updated = conversation.copy(reasoningMode = mode)
+            conversationRepository.updateConversation(updated)
+            _selectedConversation.value = updated
+        }
+    }
     private suspend fun setConversationWorldSets(conversationId: String, ids: Set<String>) {
         conversationRepository.replaceConversationWorldSets(
             conversationId,
