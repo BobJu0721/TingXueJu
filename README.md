@@ -7,7 +7,7 @@
 - **模型來源：** 雲端 API（目前不支援本地模型）
 - **資料保存：** 聊天與設定保存在本機；API Key 由 Android Keystore 保護
 
-[下載 v1.10 APK](https://github.com/BobJu0721/TingXueJu/releases/download/v1.10/TingXueJu-v1.10.apk) · [查看 Releases](https://github.com/BobJu0721/TingXueJu/releases) · [閱讀更新公告](更新公告.md)
+[下載 v1.11 APK](https://github.com/BobJu0721/TingXueJu/releases/download/v1.11/TingXueJu-v1.11.apk) · [查看 Releases](https://github.com/BobJu0721/TingXueJu/releases) · [閱讀更新公告](更新公告.md)
 
 ## 畫面預覽
 
