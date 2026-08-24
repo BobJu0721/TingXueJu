@@ -380,10 +380,10 @@ internal fun ModelsScreen(
             when {
                 visibleModels.isNotEmpty() -> LazyColumn {
                     items(visibleModels, key = { it.first }) { (model, isManual) ->
-                        Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clippedClickable(RoundedCornerShape(14.dp)) { viewModel.chooseModel(model) }, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
+                        Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clippedClickable(RoundedCornerShape(11.dp)) { viewModel.chooseModel(model) }, shape = RoundedCornerShape(11.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
                             Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (isManual) language.pick("使用「$model」", "使用「$model」") else model, Modifier.weight(1f))
-                                if (model == selected) Icon(Icons.Default.Check, language.pick("目前模型", "目前模型"))
+                                if (model == selected) Icon(Icons.Default.Check, language.pick("目前模型", "目前模型"), tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
