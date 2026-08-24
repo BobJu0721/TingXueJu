@@ -451,7 +451,7 @@ internal fun RootBottomBar(
         Column {
             Box(Modifier.fillMaxWidth().height(0.5.dp).background(MaterialTheme.colorScheme.outlineVariant))
             Row(
-                modifier = Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 6.dp),
+                modifier = Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CompactBottomItem(language.pick("\u5c0d\u8a71", "\u5bf9\u8bdd"), Icons.Default.Chat, selected == Screen.CONVERSATIONS) { onSelect(Screen.CONVERSATIONS) }
@@ -508,9 +508,9 @@ private fun RowScope.CompactBottomItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(22.dp))
+        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(26.dp))
         Spacer(Modifier.height(3.dp))
-        Text(label, color = color, fontSize = 10.sp, maxLines = 1)
+        Text(label, color = color, fontSize = 12.sp, maxLines = 1)
     }
 }
 

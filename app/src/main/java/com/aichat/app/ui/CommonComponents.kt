@@ -188,13 +188,13 @@ internal fun LargeTitleHeader(
         Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = 18.dp, end = 14.dp, top = 8.dp, bottom = 6.dp),
+            .padding(start = 22.dp, end = 18.dp, top = 10.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             title,
             Modifier.weight(1f),
-            fontSize = 30.sp,
+            fontSize = 36.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
@@ -204,22 +204,22 @@ internal fun LargeTitleHeader(
                 Modifier
                     .clip(RoundedCornerShape(99.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .padding(horizontal = 12.dp, vertical = 5.dp)
             ) {
-                Text(countText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(countText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
         }
         if (onAdd != null) {
             Box(
                 Modifier
-                    .size(40.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary)
                     .clickable(onClick = onAdd),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Add, addDescription, tint = Color.White, modifier = Modifier.size(22.dp))
+                Icon(Icons.Default.Add, addDescription, tint = Color.White, modifier = Modifier.size(26.dp))
             }
         }
     }
@@ -239,7 +239,7 @@ internal fun avatarEmoji(seed: String): String =
 internal fun AvatarCircle(
     text: String,
     seed: String = text,
-    size: Dp = 42.dp,
+    size: Dp = 52.dp,
     modifier: Modifier = Modifier,
     emoji: String? = null,
 ) {

@@ -75,11 +75,11 @@ internal fun ConversationsScreen(
         } else {
             LazyColumn(
                 Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(start = 18.dp, top = 6.dp, end = 18.dp, bottom = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(start = 22.dp, top = 8.dp, end = 22.dp, bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 items(conversations, key = { it.id }) { conversation ->
-                    val cardShape = RoundedCornerShape(16.dp)
+                    val cardShape = RoundedCornerShape(20.dp)
                     Card(
                         Modifier.fillMaxWidth().clippedCombinedClickable(
                             cardShape,
@@ -91,24 +91,24 @@ internal fun ConversationsScreen(
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     ) {
                         Row(
-                            Modifier.fillMaxWidth().padding(start = 13.dp, top = 10.dp, bottom = 10.dp, end = 14.dp),
+                            Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             AvatarCircle(conversation.title, conversation.id, emoji = avatarEmoji(conversation.id))
-                            Spacer(Modifier.width(13.dp))
+                            Spacer(Modifier.width(16.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     conversation.title,
-                                    fontSize = 16.sp,
+                                    fontSize = 19.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                Spacer(Modifier.height(3.dp))
+                                Spacer(Modifier.height(4.dp))
                                 Text(
                                     relativeTimeLabel(conversation.updatedAt),
-                                    fontSize = 12.sp,
+                                    fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                 )
@@ -117,7 +117,7 @@ internal fun ConversationsScreen(
                             Icon(
                                 Icons.Default.ChevronRight,
                                 contentDescription = null,
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(22.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                             )
                         }
@@ -126,9 +126,9 @@ internal fun ConversationsScreen(
                 item {
                     Text(
                         language.pick("點擊開啟對話，長按刪除", "点击开启对话，长按删除"),
-                        Modifier.fillMaxWidth().padding(top = 2.dp),
+                        Modifier.fillMaxWidth().padding(top = 4.dp),
                         textAlign = TextAlign.Center,
-                        fontSize = 12.sp,
+                        fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
                     )
                 }
