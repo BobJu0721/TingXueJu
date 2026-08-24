@@ -94,7 +94,7 @@ internal fun ConversationsScreen(
                             Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            AvatarCircle(conversation.title, conversation.id, emoji = avatarEmoji(conversation.id))
+                            AvatarCircle(conversation.title, conversation.id)
                             Spacer(Modifier.width(16.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(

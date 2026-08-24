@@ -239,7 +239,7 @@ internal fun avatarEmoji(seed: String): String =
 internal fun AvatarCircle(
     text: String,
     seed: String = text,
-    size: Dp = 52.dp,
+    size: Dp = 56.dp,
     modifier: Modifier = Modifier,
     emoji: String? = null,
 ) {
