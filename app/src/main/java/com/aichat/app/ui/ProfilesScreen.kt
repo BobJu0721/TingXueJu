@@ -20,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,37 +53,122 @@ internal fun ProfilesScreen(viewModel: ProfilesViewModel, onRootSelected: (Scree
     val importTarget = if (type == ProfileType.CHARACTER) ImportTarget.CHARACTER else ImportTarget.PERSONA
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { viewModel.importDocument(it, importTarget) } }
     val title = if (type == ProfileType.CHARACTER) language.pick("角色", "角色") else "Persona"
+    val countLabel = if (type == ProfileType.CHARACTER) language.pick("${profiles.size} 位角色", "${profiles.size} 位角色") else "${profiles.size} 個"
     Scaffold(
-        topBar = { CompactTopBar(title, actions = { IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) { Icon(Icons.Default.UploadFile, language.pick("匯入文件", "导入文件")) } }) },
+        containerColor = Color.Transparent,
+        topBar = {
+            LargeTitleHeader(
+                title = title,
+                countText = if (profiles.isEmpty()) null else countLabel,
+                importAction = { launcher.launch(DOCUMENT_TYPES) },
+                importDescription = language.pick("匯入文件", "导入文件"),
+                onAdd = { viewModel.newProfile(type) },
+                addDescription = language.pick("新增$title", "新增$title"),
+            )
+        },
         bottomBar = { if (showBottomBar && type == ProfileType.CHARACTER) RootBottomBar(Screen.CHARACTERS, language, onRootSelected) },
-        floatingActionButton = { FloatingActionButton(onClick = { viewModel.newProfile(type) }, shape = CircleShape, containerColor = MaterialTheme.colorScheme.primary, contentColor = Color.White) { Icon(Icons.Default.Add, language.pick("新增$title", "新增$title")) } },
     ) { padding ->
-        if (profiles.isEmpty()) EmptyState(language.pick("還沒有$title", "还没有$title"), language.pick("可以手動建立，或從 TXT、JSON、DOCX 文件交給 AI 整理。", "可以手动建立，或从 TXT、JSON、DOCX 文件交给 AI 整理。"), Modifier.padding(padding))
-        else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(profiles, key = { it.id }) { profile -> ProfileRow(profile, type == ProfileType.CHARACTER, viewModel, language) }
+        if (profiles.isEmpty()) {
+            EmptyState(
+                language.pick("還沒有$title", "还没有$title"),
+                language.pick("按右上角＋手動建立，或從 TXT、JSON、DOCX 文件交給 AI 整理。", "按右上角＋手动建立，或从 TXT、JSON、DOCX 文件交给 AI 整理。"),
+                Modifier.padding(padding),
+            )
+        } else {
+            LazyColumn(
+                Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(start = 22.dp, top = 8.dp, end = 22.dp, bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                items(profiles, key = { it.id }) { profile -> ProfileRow(profile, type == ProfileType.CHARACTER, viewModel, language) }
+                if (type == ProfileType.CHARACTER) {
+                    item {
+                        Text(
+                            language.pick("支援匯入 TXT / JSON / DOCX 角色卡", "支援导入 TXT / JSON / DOCX 角色卡"),
+                            Modifier.fillMaxWidth().padding(top = 4.dp),
+                            textAlign = TextAlign.Center,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ProfileRow(profile: ProfileEntity, canChat: Boolean, viewModel: ProfilesViewModel, language: AppLanguage) {
-    val cardShape = RoundedCornerShape(11.dp)
+    var pendingDelete by remember { mutableStateOf(false) }
+    val cardShape = RoundedCornerShape(20.dp)
     Card(
-        Modifier.fillMaxWidth().clippedClickable(cardShape) { viewModel.editProfile(profile) },
+        Modifier.fillMaxWidth().clippedCombinedClickable(
+            cardShape,
+            onClick = { viewModel.editProfile(profile) },
+            onLongClick = { pendingDelete = true },
+        ),
         shape = cardShape,
-        colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Row(Modifier.fillMaxWidth().padding(start = 18.dp, top = 14.dp, bottom = 14.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AvatarCircle(profile.name, profile.id)
+            Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text(profile.name, fontWeight = FontWeight.Bold)
-                if (profile.summary.isNotBlank()) Text(profile.summary, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    profile.name,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (profile.summary.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        profile.summary,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-            if (canChat) IconButton(onClick = { viewModel.startChat(profile.id) }) { Icon(Icons.Default.Chat, language.pick("開始聊天", "开始聊天")) }
-            IconButton(onClick = { viewModel.editProfile(profile) }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑")) }
-            IconButton(onClick = { viewModel.deleteProfile(profile) }) { Icon(Icons.Default.Delete, language.pick("刪除", "删除")) }
+            if (canChat) {
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                        .clickable { viewModel.startChat(profile.id) }
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.AutoMirrored.Filled.Chat, language.pick("開始聊天", "开始聊天"), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(5.dp))
+                        Text(language.pick("聊天", "聊天"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
         }
+    }
+    if (pendingDelete) {
+        DeleteConfirmDialog(
+            title = if (profile.type == ProfileType.CHARACTER) language.pick("刪除角色", "删除角色") else language.pick("刪除 Persona", "删除 Persona"),
+            message = profile.name,
+            language = language,
+            onConfirm = {
+                viewModel.deleteProfile(profile)
+                pendingDelete = false
+            },
+            onDismiss = { pendingDelete = false },
+        )
     }
 }
 

@@ -183,6 +183,8 @@ internal fun LargeTitleHeader(
     countText: String? = null,
     onAdd: (() -> Unit)? = null,
     addDescription: String = "新增",
+    importAction: (() -> Unit)? = null,
+    importDescription: String = "匯入",
 ) {
     Row(
         Modifier
@@ -210,6 +212,19 @@ internal fun LargeTitleHeader(
             }
         }
         Spacer(Modifier.weight(1f))
+        if (importAction != null) {
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                    .clickable(onClick = importAction),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.UploadFile, importDescription, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+        }
         if (onAdd != null) {
             Box(
                 Modifier
