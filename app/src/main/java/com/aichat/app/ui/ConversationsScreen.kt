@@ -75,7 +75,7 @@ internal fun ConversationsScreen(
         } else {
             LazyColumn(
                 Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(start = 14.dp, top = 6.dp, end = 14.dp, bottom = 18.dp),
+                contentPadding = PaddingValues(start = 18.dp, top = 6.dp, end = 18.dp, bottom = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(conversations, key = { it.id }) { conversation ->
@@ -95,11 +95,11 @@ internal fun ConversationsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             AvatarCircle(conversation.title, conversation.id)
-                            Spacer(Modifier.width(12.dp))
+                            Spacer(Modifier.width(13.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     conversation.title,
-                                    fontSize = 15.sp,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,

@@ -194,7 +194,7 @@ internal fun LargeTitleHeader(
         Text(
             title,
             Modifier.weight(1f),
-            fontSize = 28.sp,
+            fontSize = 30.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
@@ -213,13 +213,13 @@ internal fun LargeTitleHeader(
         if (onAdd != null) {
             Box(
                 Modifier
-                    .size(38.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary)
                     .clickable(onClick = onAdd),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Add, addDescription, tint = Color.White, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.Add, addDescription, tint = Color.White, modifier = Modifier.size(22.dp))
             }
         }
     }
@@ -227,7 +227,7 @@ internal fun LargeTitleHeader(
 
 /** Gradient monogram avatar; color derived from `seed` (unique id), letter from `text`. */
 @Composable
-internal fun AvatarCircle(text: String, seed: String = text, size: Dp = 46.dp, modifier: Modifier = Modifier) {
+internal fun AvatarCircle(text: String, seed: String = text, size: Dp = 42.dp, modifier: Modifier = Modifier) {
     val hue = remember(seed) { Math.floorMod(seed.hashCode(), 360).toFloat() }
     val c1 = Color.hsv(hue, 0.52f, 0.95f)
     val c2 = Color.hsv((hue + 42f) % 360f, 0.62f, 0.72f)
