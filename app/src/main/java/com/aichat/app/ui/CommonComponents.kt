@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.pager.*
 import androidx.compose.foundation.relocation.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -21,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
@@ -38,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -171,4 +174,91 @@ internal fun ErrorDialog(error: UiError, language: AppLanguage, onDismiss: () ->
     AlertDialog(onDismissRequest = onDismiss, shape = RoundedCornerShape(14.dp), containerColor = MaterialTheme.colorScheme.surface, title = { Text(error.title) }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(error.message); Text(error.suggestion, fontWeight = FontWeight.Bold) } }, confirmButton = {
         if (error.kind == ErrorKind.CONTEXT_LENGTH) TextButton(onClick = onTrim) { Text(language.pick("裁切舊訊息並重試", "裁切旧消息并重试")) } else TextButton(onClick = onDismiss) { Text(language.pick("關閉", "关闭")) }
     }, dismissButton = { if (error.kind == ErrorKind.CONTEXT_LENGTH) TextButton(onClick = onNew) { Text(language.pick("建立新對話", "建立新对话")) } else TextButton(onClick = onSettings) { Text(language.pick("前往設定", "前往设置"), color = MaterialTheme.colorScheme.primary) } })
+}
+
+/** iOS-style large-title page header with optional count chip and circular add button. */
+@Composable
+internal fun LargeTitleHeader(
+    title: String,
+    countText: String? = null,
+    onAdd: (() -> Unit)? = null,
+    addDescription: String = "新增",
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 18.dp, end = 14.dp, top = 8.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            Modifier.weight(1f),
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+        )
+        if (countText != null) {
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(countText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(10.dp))
+        }
+        if (onAdd != null) {
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable(onClick = onAdd),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Add, addDescription, tint = Color.White, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+/** Gradient monogram avatar; color derived from `seed` (unique id), letter from `text`. */
+@Composable
+internal fun AvatarCircle(text: String, seed: String = text, size: Dp = 46.dp, modifier: Modifier = Modifier) {
+    val hue = remember(seed) { Math.floorMod(seed.hashCode(), 360).toFloat() }
+    val c1 = Color.hsv(hue, 0.52f, 0.95f)
+    val c2 = Color.hsv((hue + 42f) % 360f, 0.62f, 0.72f)
+    Box(
+        modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Brush.linearGradient(listOf(c1, c2)))
+            .border(2.dp, Color.White.copy(alpha = 0.55f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            seed.trim().take(1).ifBlank { "?" }.uppercase(),
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = (size.value * 0.4f).sp,
+        )
+    }
+}
+
+/** "今天 14:32 / 昨天 22:10 / 3 天前 / 5月8日" relative time label. */
+internal fun relativeTimeLabel(epochMillis: Long): String {
+    if (epochMillis <= 0L) return ""
+    val zone = java.time.ZoneId.systemDefault()
+    val dateTime = java.time.Instant.ofEpochMilli(epochMillis).atZone(zone)
+    val diff = java.time.temporal.ChronoUnit.DAYS.between(dateTime.toLocalDate(), java.time.LocalDate.now(zone))
+    val hhmm = dateTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+    return when {
+        diff <= 0L -> "今天 $hhmm"
+        diff == 1L -> "昨天 $hhmm"
+        diff < 7L -> "$diff 天前"
+        else -> "${dateTime.monthValue}月${dateTime.dayOfMonth}日"
+    }
 }
