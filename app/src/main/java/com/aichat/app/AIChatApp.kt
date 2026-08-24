@@ -11,6 +11,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -29,8 +30,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -46,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,6 +62,7 @@ import com.aichat.app.data.AppSettings
 import com.aichat.app.data.ProfileType
 import com.aichat.app.data.Provider
 import com.aichat.app.ui.*
+import com.aichat.app.ui.theme.iosColorScheme
 import kotlinx.coroutines.launch
 
 @Composable
@@ -235,53 +236,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
     }
 
     val darkTheme = isSystemInDarkTheme()
-    val colors = remember(darkTheme) {
-        if (darkTheme) {
-        darkColorScheme(
-            background = Color(0xFF121212),
-            surface = Color(0xFF202020),
-            surfaceVariant = Color(0xFF2A2A2D),
-            onSurface = Color(0xFFF2F2F2),
-            onSurfaceVariant = Color(0xFFD0D0D0),
-            primary = Color(0xFFEDEDED),
-            onPrimary = Color(0xFF111111),
-            primaryContainer = Color(0xFF2B2B2B),
-            onPrimaryContainer = Color(0xFFF2F2F2),
-            secondary = Color(0xFFD0D0D0),
-            onSecondary = Color(0xFF111111),
-            secondaryContainer = Color(0xFF2A2A2D),
-            onSecondaryContainer = Color(0xFFF2F2F2),
-            tertiary = Color(0xFFD0D0D0),
-            onTertiary = Color(0xFF111111),
-            tertiaryContainer = Color(0xFF2A2A2D),
-            onTertiaryContainer = Color(0xFFF2F2F2),
-            outline = Color(0xFF8A8A8A),
-            outlineVariant = Color(0xFF4A4A4A),
-        )
-    } else {
-        lightColorScheme(
-            background = Color(0xFFFAFAFA),
-            surface = Color.White,
-            surfaceVariant = Color(0xFFF1F1F1),
-            onSurface = Color(0xFF1F1F1F),
-            onSurfaceVariant = Color(0xFF5F5F5F),
-            primary = Color(0xFF111111),
-            onPrimary = Color.White,
-            primaryContainer = Color(0xFFF1F1F1),
-            onPrimaryContainer = Color(0xFF1F1F1F),
-            secondary = Color(0xFF4A4A4A),
-            onSecondary = Color.White,
-            secondaryContainer = Color(0xFFE8E8E8),
-            onSecondaryContainer = Color(0xFF1F1F1F),
-            tertiary = Color(0xFF4A4A4A),
-            onTertiary = Color.White,
-            tertiaryContainer = Color(0xFFE8E8E8),
-            onTertiaryContainer = Color(0xFF1F1F1F),
-            outline = Color(0xFF8A8A8A),
-            outlineVariant = Color(0xFFD0D0D0),
-        )
-    }
-    }
+    val colors = remember(darkTheme) { iosColorScheme(darkTheme) }
     CompositionLocalProvider(LocalOnBackPressedDispatcherOwner provides navBackDispatcherOwner) {
     MaterialTheme(colorScheme = colors) {
         Box(Modifier.fillMaxSize()) {
@@ -352,7 +307,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                 target = navBackDispatcher,
             )
             if (isProfileImporting || isWorldSetImporting) {
-                LoadingOverlay(language.pick("AI 甇??渡??辣...", "AI 甇??渡??辣..."))
+                LoadingOverlay(language.pick("AI 整理中…", "AI 整理中…"))
             }
         }
         (chatError ?: settingsError ?: profilesError ?: worldSetsError)?.let { current ->
@@ -489,18 +444,22 @@ internal fun RootBottomBar(
     onSelect: (Screen) -> Unit,
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth().height(52.dp),
+        modifier = Modifier.fillMaxWidth(),
         shadowElevation = 0.dp,
-        color = minimalCardContainerColor(),
+        color = iosBarColor(),
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CompactBottomItem(language.pick("\u5c0d\u8a71", "\u5bf9\u8bdd"), Icons.Default.Chat, selected == Screen.CONVERSATIONS) { onSelect(Screen.CONVERSATIONS) }
-            CompactBottomItem(language.pick("\u89d2\u8272", "\u89d2\u8272"), Icons.Default.Person, selected == Screen.CHARACTERS) { onSelect(Screen.CHARACTERS) }
-            CompactBottomItem(language.pick("\u8cc7\u6599\u5eab", "\u8d44\u6599\u5e93"), Icons.Default.Storage, selected == Screen.LIBRARY) { onSelect(Screen.LIBRARY) }
-            CompactBottomItem(language.pick("\u8a2d\u5b9a", "\u8bbe\u7f6e"), Icons.Default.Settings, selected == Screen.SETTINGS) { onSelect(Screen.SETTINGS) }
+        Column {
+            Box(Modifier.fillMaxWidth().height(0.5.dp).background(MaterialTheme.colorScheme.outlineVariant))
+            Row(
+                modifier = Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CompactBottomItem(language.pick("\u5c0d\u8a71", "\u5bf9\u8bdd"), Icons.Default.Chat, selected == Screen.CONVERSATIONS) { onSelect(Screen.CONVERSATIONS) }
+                CompactBottomItem(language.pick("\u89d2\u8272", "\u89d2\u8272"), Icons.Default.Person, selected == Screen.CHARACTERS) { onSelect(Screen.CHARACTERS) }
+                CompactBottomItem(language.pick("\u8cc7\u6599\u5eab", "\u8d44\u6599\u5e93"), Icons.Default.Storage, selected == Screen.LIBRARY) { onSelect(Screen.LIBRARY) }
+                CompactBottomItem(language.pick("\u8a2d\u5b9a", "\u8bbe\u7f6e"), Icons.Default.Settings, selected == Screen.SETTINGS) { onSelect(Screen.SETTINGS) }
+            }
+            Spacer(Modifier.navigationBarsPadding())
         }
     }
 }
@@ -513,18 +472,21 @@ internal fun CompactTopBar(
     onTitleClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    Surface(Modifier.fillMaxWidth(), shadowElevation = 0.dp, color = MaterialTheme.colorScheme.surface) {
-        Row(
-            Modifier.fillMaxWidth().statusBarsPadding().height(48.dp).padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (navigationIcon != null) navigationIcon() else Spacer(Modifier.width(8.dp))
-            val titleModifier = if (onTitleClick != null) Modifier.weight(1f).clickable(onClick = onTitleClick) else Modifier.weight(1f)
-            Column(titleModifier, verticalArrangement = Arrangement.Center) {
-                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Surface(Modifier.fillMaxWidth(), shadowElevation = 0.dp, color = iosBarColor()) {
+        Column {
+            Row(
+                Modifier.fillMaxWidth().statusBarsPadding().height(48.dp).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (navigationIcon != null) navigationIcon() else Spacer(Modifier.width(8.dp))
+                val titleModifier = if (onTitleClick != null) Modifier.weight(1f).clickable(onClick = onTitleClick) else Modifier.weight(1f)
+                Column(titleModifier, verticalArrangement = Arrangement.Center) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, content = actions)
             }
-            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+            Box(Modifier.fillMaxWidth().height(0.5.dp).background(MaterialTheme.colorScheme.outlineVariant))
         }
     }
 }
@@ -546,9 +508,9 @@ private fun RowScope.CompactBottomItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.height(2.dp))
-        Text(label, color = color, fontSize = 11.sp, maxLines = 1)
+        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.height(3.dp))
+        Text(label, color = color, fontSize = 10.sp, maxLines = 1)
     }
 }
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -27,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,9 +54,9 @@ internal fun ConversationsScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { newChatViewModel.beginNewChat() },
-                shape = RoundedCornerShape(24.dp),
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface,
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = Color.White,
             ) { Icon(Icons.Default.Add, language.pick("新增對話", "新增对话")) }
         },
     ) { padding ->
@@ -71,7 +73,7 @@ internal fun ConversationsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(conversations, key = { it.id }) { conversation ->
-                    val cardShape = RoundedCornerShape(24.dp)
+                    val cardShape = RoundedCornerShape(11.dp)
                     Card(
                         Modifier.fillMaxWidth().clippedCombinedClickable(
                             cardShape,
