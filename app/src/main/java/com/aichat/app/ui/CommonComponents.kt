@@ -193,13 +193,13 @@ internal fun LargeTitleHeader(
     ) {
         Text(
             title,
-            Modifier.weight(1f),
             fontSize = 36.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
         )
         if (countText != null) {
+            Spacer(Modifier.width(12.dp))
             Box(
                 Modifier
                     .clip(RoundedCornerShape(99.dp))
@@ -208,8 +208,8 @@ internal fun LargeTitleHeader(
             ) {
                 Text(countText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Spacer(Modifier.width(12.dp))
         }
+        Spacer(Modifier.weight(1f))
         if (onAdd != null) {
             Box(
                 Modifier
