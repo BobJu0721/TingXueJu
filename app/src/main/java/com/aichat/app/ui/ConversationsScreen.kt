@@ -91,10 +91,10 @@ internal fun ConversationsScreen(
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     ) {
                         Row(
-                            Modifier.fillMaxWidth().padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 14.dp),
+                            Modifier.fillMaxWidth().padding(start = 13.dp, top = 10.dp, bottom = 10.dp, end = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            AvatarCircle(conversation.title, conversation.id)
+                            AvatarCircle(conversation.title, conversation.id, emoji = avatarEmoji(conversation.id))
                             Spacer(Modifier.width(13.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(

@@ -225,9 +225,24 @@ internal fun LargeTitleHeader(
     }
 }
 
-/** Gradient monogram avatar; color derived from `seed` (unique id), letter from `text`. */
+private val AVATAR_EMOJIS = listOf(
+    "🧝", "🤖", "🌸", "🦊", "🐉", "🌙", "⭐", "🔥",
+    "🌊", "🍀", "🎭", "👑", "🧠", "🎯", "🚀", "🐰",
+    "🦉", "🎨", "⚔️", "🛡️", "🧙", "🐺", "🌻", "💫",
+)
+
+internal fun avatarEmoji(seed: String): String =
+    AVATAR_EMOJIS[Math.floorMod(seed.hashCode(), AVATAR_EMOJIS.size)]
+
+/** Gradient avatar with emoji or monogram; color derived from `seed` (unique id). */
 @Composable
-internal fun AvatarCircle(text: String, seed: String = text, size: Dp = 42.dp, modifier: Modifier = Modifier) {
+internal fun AvatarCircle(
+    text: String,
+    seed: String = text,
+    size: Dp = 42.dp,
+    modifier: Modifier = Modifier,
+    emoji: String? = null,
+) {
     val hue = remember(seed) { Math.floorMod(seed.hashCode(), 360).toFloat() }
     val c1 = Color.hsv(hue, 0.52f, 0.95f)
     val c2 = Color.hsv((hue + 42f) % 360f, 0.62f, 0.72f)
@@ -239,12 +254,16 @@ internal fun AvatarCircle(text: String, seed: String = text, size: Dp = 42.dp, m
             .border(2.dp, Color.White.copy(alpha = 0.55f), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            seed.trim().take(1).ifBlank { "?" }.uppercase(),
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = (size.value * 0.4f).sp,
-        )
+        if (emoji != null) {
+            Text(emoji, fontSize = (size.value * 0.52f).sp)
+        } else {
+            Text(
+                text.trim().take(1).ifBlank { "?" }.uppercase(),
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = (size.value * 0.4f).sp,
+            )
+        }
     }
 }
 
