@@ -81,13 +81,13 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
                     Button(
                         onClick = { backgroundLauncher.launch(arrayOf("image/*")) },
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(14.dp),
                     ) { Text(language.pick("上傳背景圖", "上传背景图")) }
                     if (current.backgroundImagePath.isNotBlank()) {
                         OutlinedButton(
                             onClick = viewModel::clearConversationBackground,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(24.dp),
+                            shape = RoundedCornerShape(14.dp),
                         ) { Text(language.pick("移除背景", "移除背景")) }
                     }
                 }
@@ -167,7 +167,7 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
                             )
                         }
                         Box {
-                            OutlinedButton(onClick = { summaryModeMenu = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
+                            OutlinedButton(onClick = { summaryModeMenu = true }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
                                 Text(manualSummaryModeLabel(summaryMode, language))
                             }
                             DropdownMenu(summaryModeMenu, { summaryModeMenu = false }) {
@@ -186,7 +186,7 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
                             keepRecentText,
                             { keepRecentText = it.filter(Char::isDigit).take(3) },
                             Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(24.dp),
+                            shape = RoundedCornerShape(14.dp),
                             label = { Text(language.pick("保留最近訊息數", "保留最近消息数")) },
                             supportingText = { Text(language.pick("本次有效，範圍 1 到 100。", "仅本次有效，范围 1 到 100。")) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -204,7 +204,7 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
                             onClick = { viewModel.manuallySummarizeConversation(summaryMode, keepRecentCount ?: 20) },
                             enabled = canSummarize,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(24.dp),
+                            shape = RoundedCornerShape(14.dp),
                         ) {
                             Text(
                                 if (isSummarizing) language.pick("壓縮中...", "压缩中...")

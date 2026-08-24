@@ -52,7 +52,7 @@ internal fun SettingsScreen(viewModel: SettingsViewModel, onRootSelected: (Scree
     val lang = settings.language
     Scaffold(topBar = { CompactTopBar(lang.pick("設定", "设置")) }, bottomBar = { if (showBottomBar) RootBottomBar(Screen.SETTINGS, lang, onRootSelected) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            val apiCardShape = RoundedCornerShape(24.dp)
+            val apiCardShape = RoundedCornerShape(11.dp)
             Card(
                 Modifier.fillMaxWidth().clippedClickable(apiCardShape, viewModel::openApiSettings),
                 shape = apiCardShape,
@@ -69,14 +69,14 @@ internal fun SettingsScreen(viewModel: SettingsViewModel, onRootSelected: (Scree
             }
             Text(lang.pick("介面語言", "界面语言"), fontWeight = FontWeight.Bold)
             Box {
-                OutlinedButton(onClick = { languageMenu = true }, shape = RoundedCornerShape(24.dp)) { Text(language.label) }
+                OutlinedButton(onClick = { languageMenu = true }, shape = RoundedCornerShape(14.dp)) { Text(language.label) }
                 DropdownMenu(languageMenu, { languageMenu = false }) {
                     AppLanguage.entries.forEach { option ->
                         DropdownMenuItem({ Text(option.label) }, { language = option; languageMenu = false })
                     }
                 }
             }
-            Button(onClick = { viewModel.saveAppearanceSettings(settings.darkTheme, language) }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) { Text(lang.pick("儲存設定", "保存设置")) }
+            Button(onClick = { viewModel.saveAppearanceSettings(settings.darkTheme, language) }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text(lang.pick("儲存設定", "保存设置")) }
             Text(lang.pick("API Key 使用 Android Keystore 保護。App 不會自動備份本機內容。", "API Key 使用 Android Keystore 保护。App 不会自动备份本机内容。"), style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -129,7 +129,7 @@ private fun ApiEndpointList(
         Text(language.pick("目前使用", "当前使用"), fontWeight = FontWeight.Bold)
         Card(
             Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
@@ -161,7 +161,7 @@ private fun ApiEndpointList(
         OutlinedButton(
             onClick = { onEditCustom(UUID.randomUUID().toString()) },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(14.dp),
         ) {
             Icon(Icons.Default.Add, null)
             Spacer(Modifier.width(6.dp))
@@ -179,7 +179,7 @@ private fun ApiEndpointCard(
     language: AppLanguage,
     onClick: () -> Unit,
 ) {
-    val cardShape = RoundedCornerShape(24.dp)
+    val cardShape = RoundedCornerShape(11.dp)
     Card(
         Modifier.fillMaxWidth().clippedClickable(cardShape, onClick),
         shape = cardShape,
@@ -273,13 +273,13 @@ private fun BuiltInEndpointDetail(
             onClick = { viewModel.saveBuiltInEndpoint(provider, key, accountId, makeActive = false); key = "" },
             modifier = Modifier.fillMaxWidth(),
             enabled = cloudflareReady && (key.isNotBlank() || (provider == Provider.CLOUDFLARE && hasSavedKey)),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(14.dp),
         ) { Text(language.pick("儲存", "保存")) }
         Button(
             onClick = { viewModel.saveBuiltInEndpoint(provider, key, accountId, makeActive = true); key = "" },
             modifier = Modifier.fillMaxWidth(),
             enabled = cloudflareReady && (key.isNotBlank() || hasSavedKey),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(14.dp),
         ) { Text(language.pick("設為目前使用", "设为当前使用")) }
     }
 }
@@ -308,19 +308,19 @@ private fun CustomEndpointDetail(
             onClick = { viewModel.saveCustomEndpoint(id, name, baseUrl, key, makeActive = false); key = "" },
             modifier = Modifier.fillMaxWidth(),
             enabled = canSave,
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(14.dp),
         ) { Text(language.pick("儲存", "保存")) }
         Button(
             onClick = { viewModel.saveCustomEndpoint(id, name, baseUrl, key, makeActive = true); key = "" },
             modifier = Modifier.fillMaxWidth(),
             enabled = canSave,
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(14.dp),
         ) { Text(language.pick("設為目前使用", "设为当前使用")) }
         if (isExisting) {
             OutlinedButton(
                 onClick = { viewModel.deleteCustomEndpoint(id); onClose() },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(14.dp),
             ) { Text(language.pick("刪除", "删除")) }
         }
     }
@@ -380,7 +380,7 @@ internal fun ModelsScreen(
             when {
                 visibleModels.isNotEmpty() -> LazyColumn {
                     items(visibleModels, key = { it.first }) { (model, isManual) ->
-                        Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clippedClickable(RoundedCornerShape(24.dp)) { viewModel.chooseModel(model) }, shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
+                        Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clippedClickable(RoundedCornerShape(14.dp)) { viewModel.chooseModel(model) }, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
                             Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (isManual) language.pick("使用「$model」", "使用「$model」") else model, Modifier.weight(1f))
                                 if (model == selected) Icon(Icons.Default.Check, language.pick("目前模型", "目前模型"))

@@ -79,7 +79,7 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
         floatingActionButton = {
             FloatingActionButton(
                 onClick = viewModel::newWorldSet,
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(14.dp),
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.onSurface,
             ) { Icon(Icons.Default.Add, language.pick("新增設定集", "新增设定集")) }
@@ -98,7 +98,7 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(sets, key = { it.id }) { set ->
-                    val cardShape = RoundedCornerShape(24.dp)
+                    val cardShape = RoundedCornerShape(11.dp)
                     Card(
                         Modifier.fillMaxWidth().clippedCombinedClickable(
                             cardShape,
@@ -142,7 +142,7 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
     if (showTemplates) {
         AlertDialog(
             onDismissRequest = { showTemplates = false },
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(14.dp),
             containerColor = MaterialTheme.colorScheme.surface,
             title = { Text(language.pick("使用世界觀模板", "使用世界观模板")) },
             text = {
@@ -154,7 +154,7 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
                                 showTemplates = false
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(24.dp),
+                            shape = RoundedCornerShape(14.dp),
                         ) { Text(template.name) }
                     }
                 }
@@ -191,7 +191,7 @@ internal fun WorldSetEditScreen(viewModel: WorldSetsViewModel, language: AppLang
             if (worldSet != null) {
                 FloatingActionButton(
                     onClick = { editingEntry = null; showEntryDialog = true },
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(14.dp),
                     containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = MaterialTheme.colorScheme.onSurface,
                 ) { Icon(Icons.Default.Add, language.pick("新增條目", "新增条目")) }
@@ -228,7 +228,7 @@ internal fun WorldSetEditScreen(viewModel: WorldSetsViewModel, language: AppLang
             }
             if (worldSet == null) item { Text(language.pick("正在建立設定集...", "正在建立设定集...")) }
             items(entries, key = { it.id }) { entry ->
-                val cardShape = RoundedCornerShape(24.dp)
+                val cardShape = RoundedCornerShape(11.dp)
                 Card(
                     Modifier.fillMaxWidth().clippedCombinedClickable(
                         cardShape,
@@ -289,7 +289,7 @@ private fun WorldEntryDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(14.dp),
         containerColor = MaterialTheme.colorScheme.surface,
         title = { Text(language.pick("世界設定條目", "世界设定条目")) },
         text = {

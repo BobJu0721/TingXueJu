@@ -51,7 +51,7 @@ internal fun LibraryScreen(onOpenWorldSets: () -> Unit, profilesViewModel: Profi
     Scaffold(topBar = { CompactTopBar(language.pick("資料庫", "资料库")) }, bottomBar = { if (showBottomBar) RootBottomBar(Screen.LIBRARY, language, onRootSelected) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
-                val cardShape = RoundedCornerShape(24.dp)
+                val cardShape = RoundedCornerShape(11.dp)
                 Card(
                     Modifier.fillMaxWidth().clippedClickable(cardShape, onOpenWorldSets),
                     shape = cardShape,
