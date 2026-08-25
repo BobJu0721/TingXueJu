@@ -139,6 +139,15 @@ internal fun ProfileRow(profile: ProfileEntity, canChat: Boolean, viewModel: Pro
                     )
                 }
             }
+            if (!canChat) {
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                )
+            }
             if (canChat) {
                 Spacer(Modifier.width(10.dp))
                 Box(
