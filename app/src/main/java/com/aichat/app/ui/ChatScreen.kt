@@ -57,6 +57,8 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val darkTheme = isSystemInDarkTheme()
     val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
+    val characters by viewModel.characters.collectAsStateWithLifecycle()
+    val characterName = conversation?.characterId?.let { id -> characters.find { it.id == id }?.name }
     val selectedId by viewModel.selectedConversationId.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val chatScope = rememberCoroutineScope()
@@ -129,19 +131,75 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0.dp),
             topBar = {
-                CompactTopBar(
-                    title = conversation?.title?.ifBlank { null } ?: language.pick("聽雪居", "听雪居"),
-                    subtitle = settings.model,
-                    navigationIcon = { Back(language, onBack) },
-                    onTitleClick = {
-                        renameText = conversation?.title.orEmpty()
-                        renameDialogVisible = conversation != null
-                    },
-                    actions = {
-                        IconButton(onClick = viewModel::openChatInfo) { Icon(Icons.Default.Info, language.pick("對話資訊", "对话信息")) }
-                        IconButton(onClick = viewModel::openModels) { Icon(Icons.Default.Tune, language.pick("選擇模型", "选择模型")) }
-                    },
-                )
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .padding(start = 6.dp)
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Back(language, onBack) }
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable {
+                                    renameText = conversation?.title.orEmpty()
+                                    renameDialogVisible = conversation != null
+                                }
+                                .padding(vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                conversation?.title?.ifBlank { null } ?: language.pick("聽雪居", "听雪居"),
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Surface(
+                                shape = RoundedCornerShape(99.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                                onClick = viewModel::openModels,
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Default.Bolt, null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        settings.model,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
+                        }
+                        Box(
+                            Modifier
+                                .padding(end = 6.dp)
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                                .clickable(onClick = viewModel::openChatInfo),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Default.Info, language.pick("對話資訊", "对话信息"), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    Hairline()
+                }
             },
             bottomBar = { MessageComposer(viewModel, language) },
         ) { padding ->
@@ -160,6 +218,8 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                             reasoningContent = contextMap[message.id]?.second.orEmpty(),
                             language = language,
                             bubbleOpacity = conversation?.messageBubbleOpacity ?: 1f,
+                            characterName = characterName,
+                            characterSeed = conversation?.characterId ?: "ai",
                             actionsVisible = actionMessageId == message.id,
                             onToggleActions = {
                                 actionMessageId = if (actionMessageId == message.id) null else message.id
@@ -249,7 +309,7 @@ private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage) {
                     Modifier.weight(1f),
                     placeholder = { Text(language.pick("輸入訊息", "输入消息")) },
                     maxLines = 5,
-                    shape = RoundedCornerShape(21.dp),
+                    shape = RoundedCornerShape(24.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
@@ -257,18 +317,26 @@ private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage) {
                         unfocusedBorderColor = Color.Transparent,
                     ),
                 )
-                IconButton(onClick = {
-                    if (streaming) viewModel.stopStreaming()
-                    else {
-                        viewModel.send()
-                        focusManager.clearFocus()
-                        keyboard?.hide()
-                    }
-                }) {
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(if (streaming) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                        .clickable {
+                            if (streaming) viewModel.stopStreaming()
+                            else {
+                                viewModel.send()
+                                focusManager.clearFocus()
+                                keyboard?.hide()
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
                     Icon(
                         if (streaming) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
                         if (streaming) language.pick("停止", "停止") else language.pick("送出", "发送"),
-                        tint = if (streaming) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp),
                     )
                 }
             }
@@ -285,6 +353,8 @@ private fun MessageBubble(
     reasoningContent: String,
     language: AppLanguage,
     bubbleOpacity: Float,
+    characterName: String?,
+    characterSeed: String,
     actionsVisible: Boolean,
     onToggleActions: () -> Unit,
     onEdit: (String, String) -> Unit,
@@ -319,52 +389,114 @@ private fun MessageBubble(
             dark -> Ios.FillDark
             else -> Color(0xFFE9E9EB)
         }
-        val bubbleShape = if (user) RoundedCornerShape(18.dp, 18.dp, 5.dp, 18.dp)
-                          else RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp)
-        Surface(
-            Modifier
-                .fillMaxWidth(if (user) .86f else .96f)
-                .clip(bubbleShape)
-                .clickable(enabled = canShowActions, onClick = onToggleActions),
-            shape = bubbleShape,
-            color = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f)),
-            contentColor = if (user) Color.White else if (dark) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onBackground,
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-        ) {
-            Column(Modifier.padding(12.dp)) {
+        val bubbleShape = if (user) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
+                          else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
+        val bubbleContent: @Composable () -> Unit = {
+            Column(Modifier.padding(14.dp)) {
                 if (reasoning.isNotBlank()) {
-                    TextButton(onClick = { reasoningExpanded = !reasoningExpanded }) {
-                        Icon(
-                            if (reasoningExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text("思考內容")
-                    }
-                    if (reasoningExpanded) {
-                        SelectionContainer {
-                            Text(reasoning, style = MaterialTheme.typography.bodySmall)
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (user) Color.White.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = if (user) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { reasoningExpanded = !reasoningExpanded }
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Default.Psychology, null, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(6.dp))
+                                Text("思考過程", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.weight(1f))
+                                Icon(
+                                    Icons.Default.ContentCopy,
+                                    contentDescription = language.pick("複製思考內容", "复制思考内容"),
+                                    modifier = Modifier.size(15.dp).clickable { clipboard.setText(AnnotatedString(reasoning)) },
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Icon(
+                                    if (reasoningExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(17.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (reasoningExpanded) {
+                                SelectionContainer {
+                                    Text(
+                                        reasoning,
+                                        Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+                                        fontSize = 13.sp,
+                                        lineHeight = 19.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                         }
-                        TextButton(onClick = { clipboard.setText(AnnotatedString(reasoning)) }) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("複製思考內容")
-                        }
                     }
-                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                    Spacer(Modifier.height(8.dp))
                 }
-                if (message.content.isBlank()) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else SelectionContainer { MarkdownText(message.content) }
+                if (message.content.isBlank()) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp) else SelectionContainer { MarkdownText(message.content) }
                 if (worldHits.isNotEmpty()) {
-                    TextButton(onClick = { worldInfoExpanded = !worldInfoExpanded }) { Text(language.pick("世界設定命中 ${worldHits.size} 條", "世界设定命中 ${worldHits.size} 条")) }
-                    if (worldInfoExpanded) Text(worldHits.joinToString("\n") { "• $it" }, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        language.pick("世界設定命中 ${worldHits.size} 條", "世界设定命中 ${worldHits.size} 条"),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (user) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { worldInfoExpanded = !worldInfoExpanded },
+                    )
+                    if (worldInfoExpanded) Text(worldHits.joinToString("\n") { "• $it" }, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (user) {
+            Surface(
+                Modifier
+                    .fillMaxWidth(0.86f)
+                    .clip(bubbleShape)
+                    .clickable(enabled = canShowActions, onClick = onToggleActions),
+                shape = bubbleShape,
+                color = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f)),
+                contentColor = Color.White,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+            ) { bubbleContent() }
+        } else {
+            Row(Modifier.fillMaxWidth()) {
+                AvatarCircle(characterName ?: "AI", characterSeed, size = 40.dp)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        characterName ?: "AI",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Surface(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(bubbleShape)
+                            .clickable(enabled = canShowActions, onClick = onToggleActions),
+                        shape = bubbleShape,
+                        color = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f)),
+                        contentColor = if (dark) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onBackground,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                    ) { bubbleContent() }
                 }
             }
         }
         if (canShowActions && actionsVisible) {
             Row(
-                modifier = (if (user) Modifier.fillMaxWidth(.86f) else Modifier).padding(top = 2.dp),
+                modifier = (if (user) Modifier.fillMaxWidth(.86f) else Modifier.padding(start = 50.dp)).padding(top = 4.dp),
                 horizontalArrangement = Arrangement.Start,
             ) {
                 IconButton(onClick = { clipboard.setText(AnnotatedString(message.content)) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
