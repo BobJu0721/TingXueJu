@@ -19,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -49,35 +50,126 @@ import java.util.UUID
 internal fun SettingsScreen(viewModel: SettingsViewModel, onRootSelected: (Screen) -> Unit, settings: AppSettings, showBottomBar: Boolean = true) {
     var language by remember(settings.language) { mutableStateOf(settings.language) }
     var languageMenu by remember { mutableStateOf(false) }
+    var dark by remember(settings.darkTheme) { mutableStateOf(settings.darkTheme) }
     val lang = settings.language
-    Scaffold(topBar = { CompactTopBar(lang.pick("設定", "设置")) }, bottomBar = { if (showBottomBar) RootBottomBar(Screen.SETTINGS, lang, onRootSelected) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            val apiCardShape = RoundedCornerShape(11.dp)
+    val cardShape = RoundedCornerShape(20.dp)
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = { LargeTitleHeader(lang.pick("設定", "设置")) },
+        bottomBar = {
+            Column {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background)
+                        .padding(horizontal = 22.dp, vertical = 12.dp)
+                ) {
+                    Button(
+                        onClick = { viewModel.saveAppearanceSettings(dark, language) },
+                        Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                    ) { Text(lang.pick("套用設定", "应用设置"), fontWeight = FontWeight.SemiBold, fontSize = 16.sp) }
+                }
+                if (showBottomBar) RootBottomBar(Screen.SETTINGS, lang, onRootSelected)
+            }
+        },
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 22.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                lang.pick("連線", "连线"),
+                Modifier.padding(top = 4.dp),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 1.5.sp,
+            )
             Card(
-                Modifier.fillMaxWidth().clippedClickable(apiCardShape, viewModel::openApiSettings),
-                shape = apiCardShape,
-                colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
+                Modifier.fillMaxWidth().clippedClickable(cardShape, viewModel::openApiSettings),
+                shape = cardShape,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             ) {
-                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(lang.pick("API 設定", "API 设置"), fontWeight = FontWeight.Bold)
-                        Text(if (settings.provider == Provider.CUSTOM) lang.pick("自訂端點", "自定义端点") else settings.provider.label, style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconTile(Icons.Default.Link)
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(lang.pick("API 與端點", "API 与端点"), fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            if (settings.provider == Provider.CUSTOM) lang.pick("自訂端點", "自定义端点") else lang.pick("目前使用：", "当前使用：") + settings.provider.label,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, lang.pick("進入", "进入"))
+                    Icon(Icons.Default.ChevronRight, null, modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f))
                 }
             }
-            Text(lang.pick("介面語言", "界面语言"), fontWeight = FontWeight.Bold)
+            Text(
+                lang.pick("一般", "一般"),
+                Modifier.padding(top = 4.dp),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 1.5.sp,
+            )
             Box {
-                OutlinedButton(onClick = { languageMenu = true }, shape = RoundedCornerShape(14.dp)) { Text(language.label) }
+                Card(
+                    Modifier.fillMaxWidth().clippedClickable(cardShape) { languageMenu = true },
+                    shape = cardShape,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconTile(Icons.Default.Public)
+                        Spacer(Modifier.width(16.dp))
+                        Text(lang.pick("語言", "语言"), Modifier.weight(1f), fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(99.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text(language.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
                 DropdownMenu(languageMenu, { languageMenu = false }) {
                     AppLanguage.entries.forEach { option ->
                         DropdownMenuItem({ Text(option.label) }, { language = option; languageMenu = false })
                     }
                 }
             }
-            Button(onClick = { viewModel.saveAppearanceSettings(settings.darkTheme, language) }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text(lang.pick("儲存設定", "保存设置")) }
-            Text(lang.pick("API Key 使用 Android Keystore 保護。App 不會自動備份本機內容。", "API Key 使用 Android Keystore 保护。App 不会自动备份本机内容。"), style = MaterialTheme.typography.bodySmall)
+            Card(
+                shape = cardShape,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconTile(Icons.Default.DarkMode)
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(lang.pick("深色模式", "深色模式"), fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        Text(lang.pick("App 自有主題切換", "App 自有主题切换"), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Switch(dark, { dark = it }, colors = minimalSwitchColors())
+                }
+            }
+            Text(
+                lang.pick("API Key 使用 Android Keystore 保護。App 不會自動備份本機內容。", "API Key 使用 Android Keystore 保护。App 不会自动备份本机内容。"),
+                Modifier.padding(top = 2.dp),
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                lineHeight = 20.sp,
+            )
         }
     }
 }

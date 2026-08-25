@@ -13,7 +13,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -235,7 +234,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
         }
     }
 
-    val darkTheme = isSystemInDarkTheme()
+    val darkTheme = settings.darkTheme
     val colors = remember(darkTheme) { iosColorScheme(darkTheme) }
     CompositionLocalProvider(LocalOnBackPressedDispatcherOwner provides navBackDispatcherOwner) {
     MaterialTheme(colorScheme = colors) {

@@ -249,6 +249,20 @@ private val AVATAR_EMOJIS = listOf(
 internal fun avatarEmoji(seed: String): String =
     AVATAR_EMOJIS[Math.floorMod(seed.hashCode(), AVATAR_EMOJIS.size)]
 
+/** Rounded icon tile used on list cards (52dp, subtle fill, accent icon). */
+@Composable
+internal fun IconTile(icon: ImageVector, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(52.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
+    }
+}
+
 /** Gradient avatar with emoji or monogram; color derived from `seed` (unique id). */
 @Composable
 internal fun AvatarCircle(
