@@ -66,9 +66,10 @@ internal fun SettingsScreen(viewModel: SettingsViewModel, onRootSelected: (Scree
                 ) {
                     Button(
                         onClick = { viewModel.saveAppearanceSettings(dark, language) },
-                        Modifier.fillMaxWidth(),
+                        Modifier.fillMaxWidth().heightIn(min = 54.dp),
                         shape = RoundedCornerShape(16.dp),
-                    ) { Text(lang.pick("套用設定", "应用设置"), fontWeight = FontWeight.SemiBold, fontSize = 16.sp) }
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp),
+                    ) { Text(lang.pick("套用設定", "应用设置"), fontWeight = FontWeight.Bold, fontSize = 18.sp) }
                 }
                 if (showBottomBar) RootBottomBar(Screen.SETTINGS, lang, onRootSelected)
             }
