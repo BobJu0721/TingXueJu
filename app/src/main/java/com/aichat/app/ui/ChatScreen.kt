@@ -170,20 +170,14 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
                                 onClick = viewModel::openModels,
                             ) {
-                                Row(
-                                    Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Icon(Icons.Default.Bolt, null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.primary)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(
-                                        settings.model,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        maxLines = 1,
-                                    )
-                                }
+                                Text(
+                                    "⚡ " + settings.model,
+                                    Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                )
                             }
                         }
                         Box(
