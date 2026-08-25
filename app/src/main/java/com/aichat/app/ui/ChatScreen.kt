@@ -133,7 +133,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
             topBar = {
                 Column {
                     Row(
-                        Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+                        Modifier.fillMaxWidth().statusBarsPadding().height(68.dp).padding(horizontal = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
@@ -152,7 +152,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                                     renameText = conversation?.title.orEmpty()
                                     renameDialogVisible = conversation != null
                                 }
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = 2.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Text(
@@ -163,7 +163,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Spacer(Modifier.height(3.dp))
+                            Spacer(Modifier.height(2.dp))
                             Surface(
                                 shape = RoundedCornerShape(99.dp),
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
