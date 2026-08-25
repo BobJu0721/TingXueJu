@@ -397,7 +397,6 @@ private fun MessageBubble(
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = if (user) Color.White.copy(alpha = 0.14f) else if (dark) Color(0xFF3A3A3C) else Color(0xFFE3E3E8),
-                        border = if (user) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column {
