@@ -194,24 +194,199 @@ internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLangua
     var greeting by remember { mutableStateOf(draft.greeting) }
     var alternates by remember { mutableStateOf(draft.alternateGreetings.joinToString("\n")) }
     var instructions by remember { mutableStateOf(draft.extraInstructions) }
-    var showHelp by remember { mutableStateOf(false) }
-    val title = if (draft.type == ProfileType.CHARACTER) language.pick("角色設定", "角色设置") else language.pick("Persona 設定", "Persona 设置")
-    Scaffold(topBar = { CompactTopBar(title, navigationIcon = { Back(language, onBack) }) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("名稱", "名称")) }, supportingText = { Text(language.pick("例如：艾莉亞、本人、第三人稱旁白", "例如：艾莉亚、本人、第三人称旁白")) })
-            OutlinedTextField(summary, { summary = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("簡介", "简介")) }, minLines = 2)
-            OutlinedTextField(personality, { personality = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("個性", "个性")) }, minLines = 3)
-            OutlinedTextField(background, { background = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("背景", "背景")) }, minLines = 4)
-            OutlinedTextField(examples, { examples = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("範例對話", "范例对话")) }, minLines = 3)
-            OutlinedTextField(greeting, { greeting = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("開場白", "开场白")) }, minLines = 3)
-            OutlinedTextField(alternates, { alternates = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("替代開場白", "替代开场白")) }, supportingText = { Text(language.pick("每行一個替代版本", "每行一个替代版本")) }, minLines = 2)
-            OutlinedTextField(instructions, { instructions = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("額外指示", "额外指示")) }, minLines = 2)
-            TextButton(onClick = { showHelp = !showHelp }) { Text(if (showHelp) language.pick("收合填寫示範", "收合填写示范") else language.pick("查看填寫示範", "查看填写示范")) }
-            if (showHelp) Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) { Text(language.pick("簡介：一名尋找失落城市的旅行學者。\n個性：冷靜、觀察敏銳，面對熟人會偶爾開玩笑。\n背景：曾在北方學院研究古代文字。\n範例對話：我不會急著下結論，先看看牆上的刻痕。\n開場白：你也注意到這扇門了嗎？", "简介：一名寻找失落城市的旅行学者。\n个性：冷静、观察敏锐，面对熟人会偶尔开玩笑。\n背景：曾在北方学院研究古代文字。\n范例对话：我不会急着下结论，先看看墙上的刻痕。\n开场白：你也注意到这扇门了吗？"), Modifier.padding(12.dp)) }
-            Button(onClick = {
-                viewModel.saveProfile(ProfileDraft(draft.id, draft.type, name, summary, personality, background, examples, greeting, alternates.lines().filter(String::isNotBlank), instructions))
-            }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text(language.pick("儲存", "保存")) }
-            Spacer(Modifier.height(16.dp))
+    val isCharacter = draft.type == ProfileType.CHARACTER
+    val title = if (isCharacter) language.pick("編輯角色", "编辑角色") else language.pick("編輯 Persona", "编辑 Persona")
+    val saveLabel = if (isCharacter) language.pick("儲存角色", "保存角色") else language.pick("儲存 Persona", "保存 Persona")
+    fun saveIt() {
+        viewModel.saveProfile(ProfileDraft(draft.id, draft.type, name, summary, personality, background, examples, greeting, alternates.lines().filter(String::isNotBlank), instructions))
+    }
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .padding(start = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Back(language, onBack) }
+                    Text(
+                        title,
+                        Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Box(
+                        Modifier
+                            .padding(end = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                            .clickable { saveIt() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.Edit, language.pick("儲存", "保存"), modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                Hairline()
+            }
+        },
+        bottomBar = {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(horizontal = 22.dp, vertical = 12.dp)
+            ) {
+                Button(
+                    onClick = { saveIt() },
+                    Modifier.fillMaxWidth().heightIn(min = 54.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) { Text(saveLabel, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+            }
+        },
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 22.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            FieldBlock(
+                label = language.pick("名稱", "名称"),
+                value = name,
+                onValueChange = { name = it },
+                placeholder = language.pick("例如：艾莉亞、本人、第三人稱旁白", "例如：艾莉亚、本人、第三人称旁白"),
+                required = true,
+            )
+            FieldBlock(
+                label = language.pick("簡介", "简介"),
+                value = summary,
+                onValueChange = { summary = it },
+                placeholder = language.pick("一句話描述這個角色", "一句话描述这个角色"),
+                exampleText = language.pick("一名尋找失落城市的旅行學者。", "一名寻找失落城市的旅行学者。"),
+            )
+            FieldBlock(
+                label = language.pick("個性", "个性"),
+                value = personality,
+                onValueChange = { personality = it },
+                placeholder = language.pick("她／他是什麼樣的人？", "她／他是什么样的人？"),
+                minLines = 3,
+                exampleText = language.pick("冷靜、觀察敏銳，面對熟人會偶爾開玩笑。", "冷静、观察敏锐，面对熟人会偶尔开玩笑。"),
+            )
+            FieldBlock(
+                label = language.pick("背景", "背景"),
+                value = background,
+                onValueChange = { background = it },
+                placeholder = language.pick("出身、經歷與動機", "出身、经历与动机"),
+                minLines = 4,
+                exampleText = language.pick("銀湖村的遊俠，十年前村子遭蝕影襲擊後獨自踏上旅途。", "银湖村的游侠，十年前村子遭蚀影袭击后独自踏上旅途。"),
+            )
+            FieldBlock(
+                label = language.pick("範例對話", "范例对话"),
+                value = examples,
+                onValueChange = { examples = it },
+                placeholder = language.pick("示範語氣與格式，使用 {{user}} 與 {{char}}", "示范语气与格式，使用 {{user}} 与 {{char}}"),
+                minLines = 3,
+                exampleText = language.pick(
+                    "{{user}}: 妳害怕月蝕嗎？\n{{char}}: *她的手停在弓弦上。*「自從那夜之後，我只信我看過的影子。」",
+                    "{{user}}: 你害怕月蚀吗？\n{{char}}: *她的手停在弓弦上。*「自从那夜之后，我只信我看过的影子。」",
+                ),
+            )
+            FieldBlock(
+                label = language.pick("開場白", "开场白"),
+                value = greeting,
+                onValueChange = { greeting = it },
+                placeholder = language.pick("第一則 AI 訊息", "第一则 AI 消息"),
+                minLines = 3,
+                exampleText = language.pick("*銀湖的霧氣緩緩散開……*「旅人，你終於來了。」", "*银湖的雾气缓缓散开……*「旅人，你终于来了。」"),
+            )
+            FieldBlock(
+                label = language.pick("替代開場白", "替代开场白"),
+                value = alternates,
+                onValueChange = { alternates = it },
+                placeholder = language.pick("每行一個替代版本", "每行一个替代版本"),
+                minLines = 3,
+            )
+            FieldBlock(
+                label = language.pick("額外指示", "额外指示"),
+                value = instructions,
+                onValueChange = { instructions = it },
+                placeholder = language.pick("給 AI 的系統級提示（選填）", "给 AI 的系统级提示（选填）"),
+                minLines = 2,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun FieldBlock(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    minLines: Int = 1,
+    required: Boolean = false,
+    exampleText: String? = null,
+) {
+    var showExample by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (required) {
+                    Spacer(Modifier.width(2.dp))
+                    Text("*", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            if (exampleText != null) {
+                Text(
+                    language.pick("示範", "示范"),
+                    Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showExample = !showExample }
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text(placeholder, fontSize = 14.sp) },
+            minLines = minLines,
+            maxLines = if (minLines == 1) 1 else 8,
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+            ),
+        )
+        if (showExample && exampleText != null) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) Color(0xFFEFEFEF) else Color(0xFF3A3A3C),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(exampleText, Modifier.padding(10.dp), fontSize = 13.sp, lineHeight = 19.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
