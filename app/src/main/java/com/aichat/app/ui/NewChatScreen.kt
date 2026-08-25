@@ -1,48 +1,53 @@
 package com.aichat.app.ui
 
-import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
-import androidx.compose.foundation.pager.*
-import androidx.compose.foundation.relocation.*
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.*
-import com.aichat.app.data.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.yield
-import kotlin.math.roundToInt
+import com.aichat.app.data.AppLanguage
+
 @Composable
 internal fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, language: AppLanguage) {
     val character by viewModel.newChatCharacter.collectAsStateWithLifecycle()
@@ -57,22 +62,233 @@ internal fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, lang
             character?.let { addAll(jsonStrings(it.alternateGreetingsJson)) }
         }.distinct()
     }
-    Scaffold(topBar = { CompactTopBar(language.pick("開始新對話", "开始新对话"), navigationIcon = { Back(language, onBack) }) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { Text(language.pick("角色：${character?.name ?: "一般聊天"}", "角色：${character?.name ?: "一般聊天"}"), style = MaterialTheme.typography.titleMedium) }
-            if (greetings.size > 1) {
-                item { Text(language.pick("選擇角色開場白", "选择角色开场白"), fontWeight = FontWeight.Bold) }
-                itemsIndexed(greetings, key = { index, _ -> index }) { _, option ->
-                    SelectRow(option, greeting == option) { viewModel.selectNewChatGreeting(option) }
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .padding(start = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Back(language, onBack) }
+                    Text(
+                        language.pick("開始新對話", "开始新对话"),
+                        Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.width(50.dp))
+                }
+                Hairline()
+            }
+        },
+        bottomBar = {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(horizontal = 22.dp, vertical = 12.dp)
+            ) {
+                Button(
+                    onClick = viewModel::createConfiguredConversation,
+                    Modifier.fillMaxWidth().heightIn(min = 54.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) { Text(language.pick("開始對話", "开始对话"), fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+            }
+        },
+    ) { padding ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(start = 22.dp, top = 8.dp, end = 22.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AvatarCircle(character?.name ?: "?", character?.id ?: "none", size = 64.dp)
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text(
+                                character?.name ?: language.pick("一般聊天", "一般聊天"),
+                                fontSize = 21.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            if (!character?.summary.isNullOrBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    character?.summary.orEmpty(),
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
                 }
             }
-            item { Text(language.pick("選擇 Persona（可略過）", "选择 Persona（可略过）"), fontWeight = FontWeight.Bold) }
-            item { SelectRow(language.pick("不指定 Persona", "不指定 Persona"), personaId == null) { viewModel.selectNewChatPersona(null) } }
-            items(personas, key = { it.id }) { SelectRow(it.name, personaId == it.id) { viewModel.selectNewChatPersona(it.id) } }
-            item { Text(language.pick("啟用世界設定集（可複選）", "启用世界设定集（可复选）"), Modifier.padding(top = 8.dp), fontWeight = FontWeight.Bold) }
-            if (sets.isEmpty()) item { Text(language.pick("尚未建立世界設定集。", "尚未建立世界设定集。")) }
-            items(sets, key = { it.id }) { set -> CheckRow(set.name, set.id in setIds) { viewModel.toggleNewChatWorldSet(set.id) } }
-            item { Button(viewModel::createConfiguredConversation, Modifier.fillMaxWidth().padding(top = 12.dp)) { Text(language.pick("建立對話", "建立对话")) } }
+            if (greetings.size > 1) {
+                item { SectionTitle(language.pick("開場白", "开场白")) }
+                itemsIndexed(greetings, key = { index, _ -> "greeting$index" }) { index, option ->
+                    RadioCard(
+                        selected = greeting == option,
+                        title = if (index == 0) language.pick("預設開場白", "预设开场白") else language.pick("替代開場白 $index", "替代开场白 $index"),
+                        subtitle = option.replace("*", "").take(40),
+                        onClick = { viewModel.selectNewChatGreeting(option) },
+                    )
+                }
+            }
+            item {
+                SectionTitle("PERSONA", badge = language.pick("可不指定", "可不指定"))
+            }
+            item {
+                RadioCard(
+                    selected = personaId == null,
+                    title = language.pick("不指定 Persona", "不指定 Persona"),
+                    subtitle = null,
+                    onClick = { viewModel.selectNewChatPersona(null) },
+                )
+            }
+            itemsIndexed(personas, key = { _, p -> p.id }) { _, p ->
+                RadioCard(
+                    selected = personaId == p.id,
+                    title = p.name,
+                    subtitle = p.summary.ifBlank { null },
+                    onClick = { viewModel.selectNewChatPersona(p.id) },
+                )
+            }
+            item {
+                SectionTitle(language.pick("啟用世界設定集", "启用世界设定集"), badge = language.pick("可複選", "可复选"))
+            }
+            if (sets.isEmpty()) {
+                item {
+                    Text(
+                        language.pick("尚未建立世界設定集。", "尚未建立世界设定集。"),
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            itemsIndexed(sets, key = { _, s -> s.id }) { _, s ->
+                CheckCard(
+                    checked = s.id in setIds,
+                    title = s.name,
+                    subtitle = null,
+                    onClick = { viewModel.toggleNewChatWorldSet(s.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String, badge: String? = null) {
+    Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text,
+            Modifier.weight(1f),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 1.5.sp,
+        )
+        badge?.let {
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(it, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RadioCard(selected: Boolean, title: String, subtitle: String?, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .border(
+                        2.dp,
+                        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        CircleShape,
+                    )
+            )
+            if (selected) {
+                Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(Modifier.height(3.dp))
+                Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CheckCard(checked: Boolean, title: String, subtitle: String?, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(20.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (checked) MaterialTheme.colorScheme.primary else Color.Transparent)
+                .border(
+                    2.dp,
+                    if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    RoundedCornerShape(6.dp),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (checked) Icon(Icons.Default.Check, null, modifier = Modifier.size(14.dp), tint = Color.White)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(Modifier.height(3.dp))
+                Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
