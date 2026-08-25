@@ -5,21 +5,30 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -41,10 +50,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.*
 import com.aichat.app.data.AppLanguage
@@ -56,6 +69,8 @@ import kotlinx.coroutines.delay
 @Composable
 internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, language: AppLanguage) {
     val sets by viewModel.worldSets.collectAsStateWithLifecycle()
+    val entryCounts by viewModel.worldEntryCounts.collectAsStateWithLifecycle()
+    val countMap = remember(entryCounts) { entryCounts.associate { it.worldSetId to it.count } }
     val templates = viewModel.worldTemplates
     var showTemplates by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<WorldSetEntity?>(null) }
@@ -64,24 +79,61 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
-            CompactTopBar(
-                language.pick("世界設定集", "世界设定集"),
-                navigationIcon = { Back(language, onBack) },
-                actions = {
-                    TextButton(onClick = { showTemplates = true }) { Text(language.pick("模板", "模板")) }
-                    IconButton(onClick = { launcher.launch(DOCUMENT_TYPES) }) {
-                        Icon(Icons.Default.UploadFile, language.pick("匯入世界設定", "导入世界设定"))
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .padding(start = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Back(language, onBack) }
+                    Text(
+                        language.pick("世界設定集", "世界设定集"),
+                        Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                            .clickable { showTemplates = true },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, language.pick("模板", "模板"), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
                     }
-                },
-            )
+                    Spacer(Modifier.width(10.dp))
+                    Box(
+                        Modifier
+                            .padding(end = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                            .clickable { launcher.launch(DOCUMENT_TYPES) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.UploadFile, language.pick("匯入世界設定", "导入世界设定"), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Hairline()
+            }
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = viewModel::newWorldSet,
-                shape = RoundedCornerShape(14.dp),
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface,
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = Color.White,
             ) { Icon(Icons.Default.Add, language.pick("新增設定集", "新增设定集")) }
         },
     ) { padding ->
@@ -94,11 +146,12 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
         } else {
             LazyColumn(
                 Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(start = 22.dp, top = 8.dp, end = 22.dp, bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 items(sets, key = { it.id }) { set ->
-                    val cardShape = RoundedCornerShape(11.dp)
+                    val count = countMap[set.id] ?: 0
+                    val cardShape = RoundedCornerShape(20.dp)
                     Card(
                         Modifier.fillMaxWidth().clippedCombinedClickable(
                             cardShape,
@@ -106,21 +159,48 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
                             onLongClick = { pendingDelete = set },
                         ),
                         shape = cardShape,
-                        colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     ) {
                         Row(
-                            Modifier.fillMaxWidth().padding(start = 18.dp, top = 14.dp, bottom = 14.dp, end = 18.dp),
+                            Modifier.fillMaxWidth().padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            IconTile(Icons.AutoMirrored.Filled.MenuBook)
+                            Spacer(Modifier.width(16.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(set.name, fontWeight = FontWeight.Bold)
-                                if (set.overview.isNotBlank()) {
-                                    Text(set.overview, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
-                                }
+                                Text(
+                                    set.name,
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    language.pick("$count 條目", "$count 条目"),
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
+                            Icon(
+                                Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                modifier = Modifier.size(22.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                            )
                         }
                     }
+                }
+                item {
+                    Text(
+                        language.pick("點擊編輯，長按刪除", "点击编辑，长按删除"),
+                        Modifier.fillMaxWidth().padding(top = 2.dp),
+                        textAlign = TextAlign.Center,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    )
                 }
             }
         }
