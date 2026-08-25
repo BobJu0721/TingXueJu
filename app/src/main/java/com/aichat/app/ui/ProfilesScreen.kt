@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -196,6 +197,7 @@ internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLangua
     var instructions by remember { mutableStateOf(draft.extraInstructions) }
     val isCharacter = draft.type == ProfileType.CHARACTER
     val title = if (isCharacter) language.pick("編輯角色", "编辑角色") else language.pick("編輯 Persona", "编辑 Persona")
+    val demoLabel = language.pick("示範", "示范")
     val saveLabel = if (isCharacter) language.pick("儲存角色", "保存角色") else language.pick("儲存 Persona", "保存 Persona")
     fun saveIt() {
         viewModel.saveProfile(ProfileDraft(draft.id, draft.type, name, summary, personality, background, examples, greeting, alternates.lines().filter(String::isNotBlank), instructions))
@@ -274,6 +276,7 @@ internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLangua
                 value = summary,
                 onValueChange = { summary = it },
                 placeholder = language.pick("一句話描述這個角色", "一句话描述这个角色"),
+                demoLabel = demoLabel,
                 exampleText = language.pick("一名尋找失落城市的旅行學者。", "一名寻找失落城市的旅行学者。"),
             )
             FieldBlock(
@@ -282,6 +285,7 @@ internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLangua
                 onValueChange = { personality = it },
                 placeholder = language.pick("她／他是什麼樣的人？", "她／他是什么样的人？"),
                 minLines = 3,
+                demoLabel = demoLabel,
                 exampleText = language.pick("冷靜、觀察敏銳，面對熟人會偶爾開玩笑。", "冷静、观察敏锐，面对熟人会偶尔开玩笑。"),
             )
             FieldBlock(
@@ -290,6 +294,7 @@ internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLangua
                 onValueChange = { background = it },
                 placeholder = language.pick("出身、經歷與動機", "出身、经历与动机"),
                 minLines = 4,
+                demoLabel = demoLabel,
                 exampleText = language.pick("銀湖村的遊俠，十年前村子遭蝕影襲擊後獨自踏上旅途。", "银湖村的游侠，十年前村子遭蚀影袭击后独自踏上旅途。"),
             )
             FieldBlock(
@@ -298,6 +303,7 @@ internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLangua
                 onValueChange = { examples = it },
                 placeholder = language.pick("示範語氣與格式，使用 {{user}} 與 {{char}}", "示范语气与格式，使用 {{user}} 与 {{char}}"),
                 minLines = 3,
+                demoLabel = demoLabel,
                 exampleText = language.pick(
                     "{{user}}: 妳害怕月蝕嗎？\n{{char}}: *她的手停在弓弦上。*「自從那夜之後，我只信我看過的影子。」",
                     "{{user}}: 你害怕月蚀吗？\n{{char}}: *她的手停在弓弦上。*「自从那夜之后，我只信我看过的影子。」",
@@ -309,6 +315,7 @@ internal fun ProfileEditScreen(viewModel: ProfilesViewModel, language: AppLangua
                 onValueChange = { greeting = it },
                 placeholder = language.pick("第一則 AI 訊息", "第一则 AI 消息"),
                 minLines = 3,
+                demoLabel = demoLabel,
                 exampleText = language.pick("*銀湖的霧氣緩緩散開……*「旅人，你終於來了。」", "*银湖的雾气缓缓散开……*「旅人，你终于来了。」"),
             )
             FieldBlock(
@@ -339,6 +346,7 @@ private fun FieldBlock(
     minLines: Int = 1,
     required: Boolean = false,
     exampleText: String? = null,
+    demoLabel: String = "示範",
 ) {
     var showExample by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -353,7 +361,7 @@ private fun FieldBlock(
             Spacer(Modifier.weight(1f))
             if (exampleText != null) {
                 Text(
-                    language.pick("示範", "示范"),
+                    demoLabel,
                     Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { showExample = !showExample }
