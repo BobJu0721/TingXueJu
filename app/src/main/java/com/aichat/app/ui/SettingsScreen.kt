@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.pager.*
 import androidx.compose.foundation.relocation.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -441,42 +443,155 @@ internal fun ModelsScreen(
             filtered.forEach { add(it to false) }
         }
     }
-    Scaffold(topBar = { CompactTopBar(language.pick("選擇模型", "选择模型"), navigationIcon = { Back(language, onBack) }, actions = { IconButton(onClick = viewModel::refreshModels) { Icon(Icons.Default.Refresh, language.pick("重新載入", "重新载入")) } }) }) { padding ->
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .padding(start = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Back(language, onBack) }
+                    Text(
+                        language.pick("選擇模型", "选择模型"),
+                        Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Box(
+                        Modifier
+                            .padding(end = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                            .clickable(onClick = viewModel::refreshModels),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.Refresh, language.pick("重新載入", "重新载入"), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                Hairline()
+            }
+        },
+    ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (reasoningMode != null) {
                 Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text(language.pick("思考模式", "思考模式"), fontWeight = FontWeight.Bold)
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        ReasoningMode.entries.forEachIndexed { index, mode ->
-                            SegmentedButton(
-                                selected = reasoningMode == mode,
-                                onClick = { onReasoningModeChange(mode) },
-                                shape = SegmentedButtonDefaults.itemShape(index, ReasoningMode.entries.size),
-                                label = {
-                                    Text(
-                                        when (mode) {
-                                            ReasoningMode.AUTO -> language.pick("自動", "自动")
-                                            ReasoningMode.ON -> language.pick("開啟", "开启")
-                                            ReasoningMode.OFF -> language.pick("關閉", "关闭")
-                                        },
-                                    )
-                                },
-                            )
+                    SectionTitle(language.pick("思考模式", "思考模式"), badge = language.pick("僅在目前對話顯示", "仅在当前对话显示"))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(3.dp)
+                    ) {
+                        ReasoningMode.entries.forEach { mode ->
+                            val segSelected = reasoningMode == mode
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(99.dp))
+                                    .background(if (segSelected) MaterialTheme.colorScheme.surface else Color.Transparent)
+                                    .clickable { onReasoningModeChange(mode) }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    when (mode) {
+                                        ReasoningMode.AUTO -> language.pick("自動", "自动")
+                                        ReasoningMode.ON -> language.pick("開啟", "开启")
+                                        ReasoningMode.OFF -> language.pick("關閉", "关闭")
+                                    },
+                                    fontSize = 14.sp,
+                                    fontWeight = if (segSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                    color = if (segSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
             }
-            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(10.dp), placeholder = { Text(language.pick("搜尋或輸入模型 ID", "搜索或输入模型 ID")) }, leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, language.pick("清除", "清除")) } })
+            OutlinedTextField(
+                query,
+                { query = it },
+                Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 4.dp),
+                placeholder = { Text(language.pick("搜尋或輸入模型 ID", "搜索或输入模型 ID")) },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, language.pick("清除", "清除")) } },
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                ),
+            )
             when {
-                visibleModels.isNotEmpty() -> LazyColumn {
+                visibleModels.isNotEmpty() -> LazyColumn(
+                    contentPadding = PaddingValues(start = 22.dp, top = 8.dp, end = 22.dp, bottom = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     items(visibleModels, key = { it.first }) { (model, isManual) ->
-                        Card(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clippedClickable(RoundedCornerShape(11.dp)) { viewModel.chooseModel(model) }, shape = RoundedCornerShape(11.dp), colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
+                        Card(
+                            Modifier.fillMaxWidth().clippedClickable(RoundedCornerShape(16.dp)) { viewModel.chooseModel(model) },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                        ) {
                             Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (isManual) language.pick("使用「$model」", "使用「$model」") else model, Modifier.weight(1f))
-                                if (model == selected) Icon(Icons.Default.Check, language.pick("目前模型", "目前模型"), tint = MaterialTheme.colorScheme.primary)
+                                Box(
+                                    Modifier
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        if (isManual) "✦" else model.take(1).uppercase(),
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        if (isManual) language.pick("使用「$model」", "使用「$model」") else model,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        if (isManual) language.pick("自訂模型 ID", "自定义模型 ID") else "Model",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (model == selected) {
+                                    Box(
+                                        Modifier
+                                            .clip(RoundedCornerShape(99.dp))
+                                            .background(Color(0xFF34C759).copy(alpha = 0.15f))
+                                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    ) {
+                                        Text("✓ " + language.pick("使用中", "使用中"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1FA84A))
+                                    }
+                                }
                             }
                         }
                     }
