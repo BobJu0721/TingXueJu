@@ -185,9 +185,50 @@ internal fun fittedImageSize(sourceWidth: Int, sourceHeight: Int, targetWidth: I
 
 @Composable
 internal fun ErrorDialog(error: UiError, language: AppLanguage, onDismiss: () -> Unit, onSettings: () -> Unit, onTrim: () -> Unit, onNew: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, shape = RoundedCornerShape(14.dp), containerColor = MaterialTheme.colorScheme.surface, title = { Text(error.title) }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(error.message); Text(error.suggestion, fontWeight = FontWeight.Bold) } }, confirmButton = {
-        if (error.kind == ErrorKind.CONTEXT_LENGTH) TextButton(onClick = onTrim) { Text(language.pick("裁切舊訊息並重試", "裁切旧消息并重试")) } else TextButton(onClick = onDismiss) { Text(language.pick("關閉", "关闭")) }
-    }, dismissButton = { if (error.kind == ErrorKind.CONTEXT_LENGTH) TextButton(onClick = onNew) { Text(language.pick("建立新對話", "建立新对话")) } else TextButton(onClick = onSettings) { Text(language.pick("前往設定", "前往设置"), color = MaterialTheme.colorScheme.primary) } })
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(22.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("⚠️", fontSize = 18.sp)
+                Spacer(Modifier.width(8.dp))
+                Text(error.title, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(error.message, fontSize = 14.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text(error.suggestion, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (error.kind == ErrorKind.CONTEXT_LENGTH) {
+                        Button(
+                            onClick = onTrim,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
+                            shape = RoundedCornerShape(14.dp),
+                        ) { Text(language.pick("裁切較早訊息並重試", "裁切较早消息并重试"), fontWeight = FontWeight.Bold) }
+                        OutlinedButton(
+                            onClick = onNew,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
+                            shape = RoundedCornerShape(14.dp),
+                        ) { Text(language.pick("建立新對話", "建立新对话"), fontWeight = FontWeight.Bold) }
+                        TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text(language.pick("取消", "取消"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    } else {
+                        Button(
+                            onClick = onSettings,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
+                            shape = RoundedCornerShape(14.dp),
+                        ) { Text(language.pick("前往設定", "前往设置"), fontWeight = FontWeight.Bold) }
+                        TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text(language.pick("關閉", "关闭"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {},
+    )
 }
 
 /** iOS-style large-title page header with optional count chip and circular add button. */
