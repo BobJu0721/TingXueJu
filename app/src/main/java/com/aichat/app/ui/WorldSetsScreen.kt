@@ -506,27 +506,120 @@ private fun WorldEntryDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(22.dp),
         containerColor = MaterialTheme.colorScheme.surface,
-        title = { Text(language.pick("世界設定條目", "世界设定条目")) },
+        title = {
+            Text(
+                if (entry == null) language.pick("新增條目", "新增条目") else language.pick("編輯條目", "编辑条目"),
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(title, { title = it }, label = { Text(language.pick("標題", "标题")) })
-                OutlinedTextField(keys, { keys = it }, label = { Text(language.pick("關鍵詞", "关键词")) }, supportingText = { Text(language.pick("用逗號分隔", "用逗号分隔")) })
-                OutlinedTextField(content, { content = it }, label = { Text(language.pick("內容", "内容")) }, minLines = 4)
-                DetailedToggleRow(
-                    title = language.pick("每次對話都送出", "每次对话都送出"),
-                    detail = language.pick("開啟後不需要命中關鍵詞，每次生成都會把這條設定送給模型。", "开启后不需要命中关键词，每次生成都会把这条设定发送给模型。"),
-                    checked = always,
-                ) { always = it }
-                DetailedToggleRow(
-                    title = language.pick("使用此條目", "使用此条目"),
-                    detail = language.pick("關閉後這條設定不會被關鍵詞觸發，也不會被每次送出。", "关闭后这条设定不会被关键词触发，也不会被每次发送。"),
-                    checked = enabled,
-                ) { enabled = it }
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                DialogField(
+                    label = language.pick("標題", "标题"),
+                    required = true,
+                ) {
+                    OutlinedTextField(
+                        title, { title = it },
+                        Modifier.fillMaxWidth(),
+                        placeholder = { Text(language.pick("例如：月蝕儀式", "例如：月蚀仪式"), fontSize = 14.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                        ),
+                    )
+                }
+                DialogField(
+                    label = language.pick("關鍵詞", "关键词"),
+                    required = true,
+                    hint = language.pick("以逗號分隔：銀湖, 儀式", "以逗号分隔：银湖, 仪式"),
+                ) {
+                    OutlinedTextField(
+                        keys, { keys = it },
+                        Modifier.fillMaxWidth(),
+                        placeholder = { Text(language.pick("銀湖, 儀式", "银湖, 仪式"), fontSize = 14.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                        ),
+                    )
+                }
+                DialogField(
+                    label = language.pick("內容", "内容"),
+                    required = true,
+                    hint = language.pick("命中關鍵詞時附加給 AI 的世界知識……", "命中关键词时附加给 AI 的世界知识……"),
+                ) {
+                    OutlinedTextField(
+                        content, { content = it },
+                        Modifier.fillMaxWidth(),
+                        placeholder = { Text(language.pick("命中關鍵詞時附加給 AI 的世界知識……", "命中关键词时附加给 AI 的世界知识……"), fontSize = 14.sp) },
+                        minLines = 4,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                        ),
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(language.pick("每次送出時附加", "每次送出时附加"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text(language.pick("不掃描關鍵詞，永遠注入", "不扫描关键词，永远注入"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(always, { always = it }, colors = minimalSwitchColors())
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(language.pick("啟用", "启用"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text(language.pick("關閉後此條目不會被觸發", "关闭后此条目不会被触发"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(enabled, { enabled = it }, colors = minimalSwitchColors())
+                }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(entry?.id, title, keys, content, always, enabled) }) { Text(language.pick("儲存", "保存")) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(language.pick("取消", "取消")) } },
+        confirmButton = {
+            Button(
+                onClick = { onSave(entry?.id, title, keys, content, always, enabled) },
+                shape = RoundedCornerShape(14.dp),
+            ) { Text(language.pick("儲存條目", "保存条目"), fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(language.pick("取消", "取消"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        },
     )
+}
+
+@Composable
+private fun DialogField(
+    label: String,
+    required: Boolean,
+    hint: String? = null,
+    content: @Composable () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (required) {
+                Spacer(Modifier.width(2.dp))
+                Text("*", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+            }
+        }
+        content()
+        hint?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
 }
