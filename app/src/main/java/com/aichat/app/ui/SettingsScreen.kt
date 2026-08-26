@@ -567,7 +567,7 @@ private fun BuiltInEndpointDetail(
                 placeholder = if (hasSavedKey) language.pick("已保存；留白可沿用", "已保存；留白可沿用") else language.pick("填入 API Key", "填入 API Key"),
                 trailingLink = if (showKey) language.pick("隱藏", "隐藏") else language.pick("顯示", "显示"),
                 onTrailingLink = { showKey = !showKey },
-                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation,
+                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
                 hint = language.pick("金鑰只保存在你的裝置上，介面永不顯示明文。", "金钥只保存在你的装置上，界面永不显示明文。"),
             )
         }
@@ -673,7 +673,7 @@ private fun CustomEndpointDetail(
                 placeholder = if (hasSavedKey) language.pick("已保存；留白可沿用", "已保存；留白可沿用") else language.pick("貼上金鑰（僅保存在本機）", "贴上金钥（仅保存在本机）"),
                 trailingLink = if (showKey) language.pick("隱藏", "隐藏") else language.pick("顯示", "显示"),
                 onTrailingLink = { showKey = !showKey },
-                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation,
+                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
                 hint = language.pick("金鑰只保存在你的裝置上，介面永不顯示明文。", "金钥只保存在你的装置上，界面永不显示明文。"),
             )
             if (isExisting) {
