@@ -516,26 +516,49 @@ private fun MessageBubble(
     if (editing) {
         AlertDialog(
             onDismissRequest = { editing = false },
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(22.dp),
             containerColor = MaterialTheme.colorScheme.surface,
-            title = { Text(if (user) language.pick("編輯自己的訊息", "编辑自己的消息") else language.pick("編輯 AI 訊息", "编辑 AI 消息")) },
-            text = {
-                OutlinedTextField(
-                    value = editText,
-                    onValueChange = { editText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 5,
-                    maxLines = 12,
-                    label = { Text(language.pick("訊息內容", "消息内容")) },
+            title = {
+                Text(
+                    language.pick("編輯訊息", "编辑消息"),
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    onEdit(message.id, editText)
-                    editing = false
-                }) { Text(language.pick("儲存", "保存")) }
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = editText,
+                        onValueChange = { editText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 5,
+                        maxLines = 12,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                        ),
+                    )
+                    Text(
+                        language.pick("編輯後會以此內容重新接續對話。", "编辑后会以此内容重新接续对话。"),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             },
-            dismissButton = { TextButton(onClick = { editing = false }) { Text(language.pick("取消", "取消")) } },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onEdit(message.id, editText)
+                        editing = false
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                ) { Text(language.pick("儲存", "保存"), fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { editing = false }) { Text(language.pick("取消", "取消"), color = MaterialTheme.colorScheme.onSurfaceVariant) } },
         )
     }
 }
