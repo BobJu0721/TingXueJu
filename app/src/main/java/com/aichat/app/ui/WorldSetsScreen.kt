@@ -268,49 +268,152 @@ internal fun WorldSetEditScreen(viewModel: WorldSetsViewModel, language: AppLang
     }
 
     Scaffold(
-        topBar = { CompactTopBar(language.pick("編輯世界設定集", "编辑世界设定集"), navigationIcon = { Back(language, onBack) }) },
+        containerColor = Color.Transparent,
+        topBar = {
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .padding(start = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Back(language, onBack) }
+                    Text(
+                        worldSet?.name?.ifBlank { null } ?: language.pick("編輯世界設定集", "编辑世界设定集"),
+                        Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.width(50.dp))
+                }
+                Hairline()
+            }
+        },
         floatingActionButton = {
             if (worldSet != null) {
                 FloatingActionButton(
                     onClick = { editingEntry = null; showEntryDialog = true },
-                    shape = RoundedCornerShape(14.dp),
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    shape = CircleShape,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.White,
                 ) { Icon(Icons.Default.Add, language.pick("新增條目", "新增条目")) }
             }
         },
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(start = 22.dp, top = 8.dp, end = 22.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("設定集名稱", "设定集名称")) })
-                OutlinedTextField(
-                    overview,
-                    { overview = it },
-                    Modifier.fillMaxWidth(),
-                    label = { Text(language.pick("一句話概括", "一句话概括")) },
-                    supportingText = {
-                        Text(language.pick(
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(language.pick("名稱", "名称"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedTextField(
+                        name,
+                        { name = it },
+                        Modifier.fillMaxWidth(),
+                        placeholder = { Text(language.pick("設定集名稱", "设定集名称"), fontSize = 14.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                        ),
+                    )
+                }
+            }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(language.pick("世界概要", "世界概要"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedTextField(
+                        overview,
+                        { overview = it },
+                        Modifier.fillMaxWidth(),
+                        placeholder = { Text(language.pick("一句話概括", "一句话概括"), fontSize = 14.sp) },
+                        minLines = 3,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                        ),
+                    )
+                    Text(
+                        language.pick(
                             "包含：時代與科技水準、主要舞台與關鍵地點、核心衝突、主要勢力/陣營、力量/資源體系、社會規則或禁忌、角色相關重大歷史事件。",
                             "包含：时代与科技水平、主要舞台与关键地点、核心冲突、主要势力/阵营、力量/资源体系、社会规则或禁忌、角色相关重大历史事件。",
-                        ))
-                    },
-                    minLines = 3,
-                )
-                OutlinedTextField(
-                    depth,
-                    { depth = it.filter(Char::isDigit) },
-                    Modifier.fillMaxWidth(),
-                    label = { Text(language.pick("掃描最近訊息數", "扫描最近消息数")) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
+                        ),
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    )
+                }
             }
-            if (worldSet == null) item { Text(language.pick("正在建立設定集...", "正在建立设定集...")) }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(language.pick("掃描訊息數", "扫描消息数"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            Modifier.border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "−",
+                                Modifier
+                                    .clickable {
+                                        depth = ((depth.toIntOrNull() ?: 10) - 1).coerceIn(1, 100).toString()
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                depth,
+                                Modifier.width(44.dp),
+                                textAlign = TextAlign.Center,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                "+",
+                                Modifier
+                                    .clickable {
+                                        depth = ((depth.toIntOrNull() ?: 10) + 1).coerceIn(1, 100).toString()
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                        Text(
+                            language.pick("每次生成掃描最近 N 則訊息（1～100）", "每次生成扫描最近 N 则消息（1～100）"),
+                            Modifier.weight(1f),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            item { SectionTitle(language.pick("條目", "条目"), badge = "${entries.size}") }
+            if (worldSet == null) item { Text(language.pick("正在建立設定集...", "正在建立设定集..."), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(entries, key = { it.id }) { entry ->
-                val cardShape = RoundedCornerShape(11.dp)
+                val cardShape = RoundedCornerShape(16.dp)
                 Card(
                     Modifier.fillMaxWidth().clippedCombinedClickable(
                         cardShape,
@@ -318,17 +421,47 @@ internal fun WorldSetEditScreen(viewModel: WorldSetsViewModel, language: AppLang
                         onLongClick = { pendingEntryDelete = entry },
                     ),
                     shape = cardShape,
-                    colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 ) {
                     Row(
-                        Modifier.fillMaxWidth().padding(start = 18.dp, top = 14.dp, bottom = 14.dp, end = 18.dp),
+                        Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(entry.title, fontWeight = FontWeight.Bold)
-                            Text(if (entry.alwaysInclude) language.pick("每次附加", "每次附加") else jsonStrings(entry.keywordsJson).joinToString(", "), style = MaterialTheme.typography.bodySmall)
+                            Text(entry.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.height(6.dp))
+                            val keywords = jsonStrings(entry.keywordsJson)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                keywords.take(3).forEach { kw ->
+                                    Box(
+                                        Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    ) {
+                                        Text(kw, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                                if (entry.alwaysInclude) {
+                                    Box(
+                                        Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f))
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    ) {
+                                        Text(language.pick("每次附加", "每次附加"), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
                         }
+                        Spacer(Modifier.width(10.dp))
+                        Box(
+                            Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(if (entry.enabled) Color(0xFF34C759) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                        )
                     }
                 }
             }
