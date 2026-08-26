@@ -918,7 +918,19 @@ internal fun ModelsScreen(
                         }
                     }
                 }
-                loading -> LoadingOverlay(language.pick("載入模型...", "载入模型..."))
+                loading -> Column(
+                    Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    CircularProgressIndicator(Modifier.size(36.dp), strokeWidth = 3.dp)
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        language.pick("正在向供應商取得模型列表……", "正在向供应商取得模型列表……"),
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 models.isEmpty() -> EmptyState(language.pick("尚未取得模型", "尚未取得模型"), language.pick("輸入完整模型 ID，或重新載入清單。", "输入完整模型 ID，或重新载入列表。"))
                 else -> EmptyState(language.pick("找不到符合的模型", "找不到符合的模型"), language.pick("可直接使用輸入的完整模型 ID。", "可直接使用输入的完整模型 ID。"))
             }
