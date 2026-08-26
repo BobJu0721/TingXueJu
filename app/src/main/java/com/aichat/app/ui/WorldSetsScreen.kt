@@ -306,27 +306,42 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
     }
 
     if (showTemplates) {
+        val templateEmojis = listOf("🏰", "🌆", "🚀", "⚔️", "🧙", "🗺️", "🐉", "🌸")
         AlertDialog(
             onDismissRequest = { showTemplates = false },
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(22.dp),
             containerColor = MaterialTheme.colorScheme.surface,
-            title = { Text(language.pick("使用世界觀模板", "使用世界观模板")) },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text(language.pick("從模板建立", "从模板建立"), fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                }
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    templates.forEach { template ->
-                        Button(
-                            onClick = {
-                                viewModel.createWorldTemplate(template)
-                                showTemplates = false
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                        ) { Text(template.name) }
+                    templates.forEachIndexed { index, template ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .clickable {
+                                    viewModel.createWorldTemplate(template)
+                                    showTemplates = false
+                                }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(templateEmojis.getOrElse(index) { "✦" }, fontSize = 18.sp)
+                            Spacer(Modifier.width(12.dp))
+                            Text(template.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        }
                     }
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { showTemplates = false }) { Text(language.pick("取消", "取消")) } },
+            dismissButton = { TextButton(onClick = { showTemplates = false }) { Text(language.pick("取消", "取消"), color = MaterialTheme.colorScheme.onSurfaceVariant) } },
         )
     }
 }
