@@ -68,9 +68,10 @@ internal fun ConversationsScreen(
     ) { padding ->
         if (conversations.isEmpty()) {
             EmptyState(
-                language.pick("還沒有對話", "还没有对话"),
-                language.pick("按右上角＋新增一般對話，或從角色頁開始劇情。", "按右上角＋新增一般对话，或从角色页开始剧情。"),
+                language.pick("尚無對話記錄", "尚无对话记录"),
+                language.pick("點右上角「＋」開啟新對話，\n或先到「角色」挑一位角色。", "点右上角「＋」开启新对话，\n或先到「角色」挑一位角色。"),
                 Modifier.padding(padding),
+                emoji = "💬",
             )
         } else {
             LazyColumn(

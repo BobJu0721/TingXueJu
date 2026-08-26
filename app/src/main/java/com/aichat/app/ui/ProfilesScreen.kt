@@ -74,6 +74,7 @@ internal fun ProfilesScreen(viewModel: ProfilesViewModel, onRootSelected: (Scree
                 language.pick("還沒有$title", "还没有$title"),
                 language.pick("按右上角＋手動建立，或從 TXT、JSON、DOCX 文件交給 AI 整理。", "按右上角＋手动建立，或从 TXT、JSON、DOCX 文件交给 AI 整理。"),
                 Modifier.padding(padding),
+                emoji = "🎭",
             )
         } else {
             LazyColumn(
