@@ -136,12 +136,33 @@ internal fun manualSummaryModeLabel(mode: ManualSummaryMode, language: AppLangua
 @Composable internal fun DeleteConfirmDialog(title: String, message: String, language: AppLanguage, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(22.dp),
         containerColor = MaterialTheme.colorScheme.surface,
-        title = { Text(title) },
-        text = { Text(message) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(language.pick("刪除", "删除"), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(language.pick("取消", "取消")) } },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🗑️", fontSize = 18.sp)
+                Spacer(Modifier.width(8.dp))
+                Text("$title？", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            }
+        },
+        text = {
+            Text(message, fontSize = 14.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp),
+                modifier = Modifier.background(
+                    Brush.linearGradient(listOf(Color(0xFFF43F5E), Color(0xFFDC2626))),
+                    RoundedCornerShape(14.dp),
+                ),
+            ) { Text(language.pick("刪除", "删除"), color = Color.White, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(language.pick("取消", "取消"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        },
     )
 }
 
