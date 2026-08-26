@@ -302,6 +302,7 @@ private fun ApiEndpointList(
                 title = provider.label,
                 detail = provider.baseUrl,
                 badge = badge,
+                language = language,
             ) { onEditBuiltIn(provider) }
         }
         item { SectionTitle(language.pick("自訂端點", "自定义端点")) }
@@ -321,6 +322,7 @@ private fun ApiEndpointList(
                 title = preset.name,
                 detail = preset.baseUrl,
                 badge = badge,
+                language = language,
             ) { onEditCustom(preset.id) }
         }
         item {
@@ -357,6 +359,7 @@ private fun ApiEndpointCard(
     title: String,
     detail: String,
     badge: EndpointBadge,
+    language: AppLanguage,
     onClick: () -> Unit,
 ) {
     Card(
