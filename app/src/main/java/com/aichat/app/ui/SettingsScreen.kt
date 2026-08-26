@@ -38,6 +38,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -428,18 +429,14 @@ internal fun BuiltInEndpointScreen(
     onBack: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    Scaffold(
-        topBar = { CompactTopBar(language.pick("API 端點", "API 端点"), navigationIcon = { Back(language, onBack) }) },
-    ) { padding ->
-        BuiltInEndpointDetail(
-            provider,
-            uiState.settings.cloudflareAccountId,
-            SecretStore.providerStorageKey(provider) in uiState.savedKeyIds,
-            viewModel,
-            language,
-            Modifier.fillMaxSize().padding(padding),
-        )
-    }
+    BuiltInEndpointDetail(
+        provider,
+        uiState.settings.cloudflareAccountId,
+        SecretStore.providerStorageKey(provider) in uiState.savedKeyIds,
+        viewModel,
+        language,
+        onBack,
+    )
 }
 
 @Composable
@@ -451,21 +448,16 @@ internal fun CustomEndpointScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val preset = uiState.customEndpointPresets.firstOrNull { it.id == id }
-    Scaffold(
-        topBar = { CompactTopBar(language.pick("API 端點", "API 端点"), navigationIcon = { Back(language, onBack) }) },
-    ) { padding ->
-        CustomEndpointDetail(
-            id = id,
-            initialName = preset?.name.orEmpty(),
-            initialBaseUrl = preset?.baseUrl.orEmpty(),
-            isExisting = preset != null,
-            hasSavedKey = SecretStore.customEndpointStorageKey(id) in uiState.savedKeyIds,
-            viewModel = viewModel,
-            language = language,
-            modifier = Modifier.fillMaxSize().padding(padding),
-            onClose = onBack,
-        )
-    }
+    CustomEndpointDetail(
+        id = id,
+        initialName = preset?.name.orEmpty(),
+        initialBaseUrl = preset?.baseUrl.orEmpty(),
+        isExisting = preset != null,
+        hasSavedKey = SecretStore.customEndpointStorageKey(id) in uiState.savedKeyIds,
+        viewModel = viewModel,
+        language = language,
+        onClose = onBack,
+    )
 }
 
 @Composable
@@ -475,35 +467,109 @@ private fun BuiltInEndpointDetail(
     hasSavedKey: Boolean,
     viewModel: SettingsViewModel,
     language: AppLanguage,
-    modifier: Modifier,
+    onBack: () -> Unit,
 ) {
     var key by remember(provider) { mutableStateOf("") }
     var accountId by remember(provider, initialCloudflareAccountId) { mutableStateOf(initialCloudflareAccountId) }
+    var showKey by remember { mutableStateOf(false) }
     val cloudflareReady = provider != Provider.CLOUDFLARE || accountId.isNotBlank()
+    val canSave = cloudflareReady && (key.isNotBlank() || (provider == Provider.CLOUDFLARE && hasSavedKey))
     val endpointUrl = if (provider == Provider.CLOUDFLARE) {
         provider.baseUrl.replace("{ACCOUNT_ID}", accountId.trim().ifBlank { "{ACCOUNT_ID}" })
     } else {
         provider.baseUrl
     }
-    Column(modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(provider.label, fontWeight = FontWeight.Bold)
-        Text(endpointUrl, style = MaterialTheme.typography.bodySmall)
-        if (provider == Provider.CLOUDFLARE) {
-            OutlinedTextField(accountId, { accountId = it }, Modifier.fillMaxWidth(), label = { Text("Account ID") }, singleLine = true)
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .padding(start = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Back(language, onBack) }
+                    Text(
+                        provider.label,
+                        Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.width(50.dp))
+                }
+                Hairline()
+            }
+        },
+        bottomBar = {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(horizontal = 22.dp, vertical = 12.dp)
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = { viewModel.saveBuiltInEndpoint(provider, key, accountId, makeActive = false); key = "" },
+                        enabled = canSave,
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) { Text(language.pick("儲存", "保存"), fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                    Button(
+                        onClick = { viewModel.saveBuiltInEndpoint(provider, key, accountId, makeActive = true); key = "" },
+                        enabled = cloudflareReady && (key.isNotBlank() || hasSavedKey),
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) { Text(language.pick("設為目前使用", "设为当前使用"), fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                }
+            }
+        },
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 22.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(
+                endpointUrl,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (provider == Provider.CLOUDFLARE) {
+                EndpointField(
+                    label = "Account ID",
+                    value = accountId,
+                    onValueChange = { accountId = it },
+                    placeholder = "Cloudflare Account ID",
+                    required = true,
+                )
+            }
+            EndpointField(
+                label = "API Key",
+                value = key,
+                onValueChange = { key = it },
+                placeholder = if (hasSavedKey) language.pick("已保存；留白可沿用", "已保存；留白可沿用") else language.pick("填入 API Key", "填入 API Key"),
+                trailingLink = if (showKey) language.pick("隱藏", "隐藏") else language.pick("顯示", "显示"),
+                onTrailingLink = { showKey = !showKey },
+                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation,
+                hint = language.pick("金鑰只保存在你的裝置上，介面永不顯示明文。", "金钥只保存在你的装置上，界面永不显示明文。"),
+            )
         }
-        OutlinedTextField(key, { key = it }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text(if (hasSavedKey) language.pick("已保存；留白可沿用", "已保存；留白可沿用") else language.pick("填入 API Key", "填入 API Key")) })
-        Button(
-            onClick = { viewModel.saveBuiltInEndpoint(provider, key, accountId, makeActive = false); key = "" },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = cloudflareReady && (key.isNotBlank() || (provider == Provider.CLOUDFLARE && hasSavedKey)),
-            shape = RoundedCornerShape(14.dp),
-        ) { Text(language.pick("儲存", "保存")) }
-        Button(
-            onClick = { viewModel.saveBuiltInEndpoint(provider, key, accountId, makeActive = true); key = "" },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = cloudflareReady && (key.isNotBlank() || hasSavedKey),
-            shape = RoundedCornerShape(14.dp),
-        ) { Text(language.pick("設為目前使用", "设为当前使用")) }
     }
 }
 
@@ -516,36 +582,163 @@ private fun CustomEndpointDetail(
     hasSavedKey: Boolean,
     viewModel: SettingsViewModel,
     language: AppLanguage,
-    modifier: Modifier,
     onClose: () -> Unit,
 ) {
     var name by remember(id, initialName) { mutableStateOf(initialName) }
     var baseUrl by remember(id, initialBaseUrl) { mutableStateOf(initialBaseUrl) }
     var key by remember(id) { mutableStateOf("") }
+    var showKey by remember { mutableStateOf(false) }
     val canSave = name.isNotBlank() && baseUrl.isNotBlank() && (key.isNotBlank() || (isExisting && hasSavedKey))
-    Column(modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(language.pick("名稱", "名称")) }, singleLine = true)
-        OutlinedTextField(baseUrl, { baseUrl = it }, Modifier.fillMaxWidth(), label = { Text("Base URL") }, singleLine = true, supportingText = { Text(language.pick("HTTP 可以使用，但傳送前會警告可能外洩。", "HTTP 可以使用，但发送前会警告可能外泄。")) })
-        OutlinedTextField(key, { key = it }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text(if (hasSavedKey) language.pick("已保存；留白可沿用", "已保存；留白可沿用") else language.pick("填入 API Key", "填入 API Key")) })
-        Button(
-            onClick = { viewModel.saveCustomEndpoint(id, name, baseUrl, key, makeActive = false); key = "" },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = canSave,
-            shape = RoundedCornerShape(14.dp),
-        ) { Text(language.pick("儲存", "保存")) }
-        Button(
-            onClick = { viewModel.saveCustomEndpoint(id, name, baseUrl, key, makeActive = true); key = "" },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = canSave,
-            shape = RoundedCornerShape(14.dp),
-        ) { Text(language.pick("設為目前使用", "设为当前使用")) }
-        if (isExisting) {
-            OutlinedButton(
-                onClick = { viewModel.deleteCustomEndpoint(id); onClose() },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-            ) { Text(language.pick("刪除", "删除")) }
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .padding(start = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Back(language, onClose) }
+                    Text(
+                        if (isExisting) language.pick("編輯自訂端點", "编辑自定义端点") else language.pick("新增自訂端點", "新增自定义端点"),
+                        Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.width(50.dp))
+                }
+                Hairline()
+            }
+        },
+        bottomBar = {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(horizontal = 22.dp, vertical = 12.dp)
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = { viewModel.saveCustomEndpoint(id, name, baseUrl, key, makeActive = false); key = "" },
+                        enabled = canSave,
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) { Text(language.pick("儲存", "保存"), fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                    Button(
+                        onClick = { viewModel.saveCustomEndpoint(id, name, baseUrl, key, makeActive = true); key = "" },
+                        enabled = canSave,
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) { Text(language.pick("設為目前使用", "设为当前使用"), fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                }
+            }
+        },
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 22.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            EndpointField(
+                label = language.pick("端點名稱", "端点名称"),
+                value = name,
+                onValueChange = { name = it },
+                placeholder = language.pick("例如：我的 Proxy", "例如：我的 Proxy"),
+                required = true,
+            )
+            EndpointField(
+                label = "Base URL",
+                value = baseUrl,
+                onValueChange = { baseUrl = it },
+                placeholder = "https://…",
+                required = true,
+                hint = language.pick("自訂 HTTP 端點以明文發送請求，請確認您信任該位址。", "自定义 HTTP 端点以明文发送请求，请确认您信任该位址。"),
+            )
+            EndpointField(
+                label = "API Key",
+                value = key,
+                onValueChange = { key = it },
+                placeholder = if (hasSavedKey) language.pick("已保存；留白可沿用", "已保存；留白可沿用") else language.pick("貼上金鑰（僅保存在本機）", "贴上金钥（仅保存在本机）"),
+                trailingLink = if (showKey) language.pick("隱藏", "隐藏") else language.pick("顯示", "显示"),
+                onTrailingLink = { showKey = !showKey },
+                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation,
+                hint = language.pick("金鑰只保存在你的裝置上，介面永不顯示明文。", "金钥只保存在你的装置上，界面永不显示明文。"),
+            )
+            if (isExisting) {
+                OutlinedButton(
+                    onClick = { viewModel.deleteCustomEndpoint(id); onClose() },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Text(language.pick("刪除此端點", "删除此端点"), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun EndpointField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    required: Boolean = false,
+    hint: String? = null,
+    trailingLink: String? = null,
+    onTrailingLink: (() -> Unit)? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (required) {
+                    Spacer(Modifier.width(2.dp))
+                    Text("*", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            if (trailingLink != null && onTrailingLink != null) {
+                Text(
+                    trailingLink,
+                    Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onTrailingLink)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text(placeholder, fontSize = 14.sp) },
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+            visualTransformation = visualTransformation,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+            ),
+        )
+        hint?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 
