@@ -144,9 +144,10 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
     ) { padding ->
         if (sets.isEmpty()) {
             EmptyState(
-                language.pick("還沒有世界設定集", "还没有世界设定集"),
-                language.pick("可使用模板、手動新增條目，或匯入文件讓 AI 拆成關鍵詞設定。", "可使用模板、手动新增条目，或导入文件让 AI 拆成关键词设定。"),
+                language.pick("還沒有任何設定集", "还没有任何设定集"),
+                language.pick("右下「＋」手動新增，\n上方 ✦ 從模板快速建立，\n或匯入讓 AI 從文件自動整理。", "右下「＋」手动新增，\n上方 ✦ 从模板快速建立，\n或汇入让 AI 从文件自动整理。"),
                 Modifier.padding(padding),
+                emoji = "📜",
             )
         } else {
             LazyColumn(
