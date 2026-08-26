@@ -21,7 +21,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -189,11 +193,33 @@ internal fun ApiSettingsScreen(
     val settings = uiState.settings
     val presets = uiState.customEndpointPresets
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
-            CompactTopBar(
-                language.pick("API 設定", "API 设置"),
-                navigationIcon = { Back(language, onBack) },
-            )
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .padding(start = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Back(language, onBack) }
+                    Text(
+                        language.pick("API 與端點", "API 与端点"),
+                        Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.width(50.dp))
+                }
+                Hairline()
+            }
         },
     ) { padding ->
         ApiEndpointList(
@@ -208,6 +234,8 @@ internal fun ApiSettingsScreen(
     }
 }
 
+private enum class EndpointBadge { CURRENT, KEY_SAVED, NOT_SET, HTTP }
+
 @Composable
 private fun ApiEndpointList(
     settings: AppSettings,
@@ -220,75 +248,172 @@ private fun ApiEndpointList(
 ) {
     val activeCustom = presets.firstOrNull { settings.provider == Provider.CUSTOM && it.baseUrl.trimEnd('/') == settings.customBaseUrl.trimEnd('/') }
     val activeName = if (settings.provider == Provider.CUSTOM) activeCustom?.name ?: language.pick("自訂端點", "自定义端点") else settings.provider.label
-    Column(modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(language.pick("目前使用", "当前使用"), fontWeight = FontWeight.Bold)
-        Card(
-            Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        ) {
-            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(activeName, fontWeight = FontWeight.Bold)
-                Text(if (settings.provider == Provider.CUSTOM || settings.provider == Provider.CLOUDFLARE) settings.resolvedBaseUrl else settings.provider.baseUrl, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val currentKeySaved = when (settings.provider) {
+        Provider.CUSTOM -> activeCustom?.let { SecretStore.customEndpointStorageKey(it.id) in savedKeyIds } ?: false
+        else -> SecretStore.providerStorageKey(settings.provider) in savedKeyIds
+    }
+    LazyColumn(
+        modifier.padding(horizontal = 22.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconTile(Icons.Default.Bolt)
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(language.pick("目前端點", "当前端点"), fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "$activeName · " + if (currentKeySaved) language.pick("API Key 已保存（不明文顯示）", "API Key 已保存（不明文显示）") else language.pick("尚未設定 Key", "尚未设定 Key"),
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF34C759)))
+                }
             }
         }
-        Text(language.pick("模型在聊天頁右上角選擇。", "模型在聊天页右上角选择。"), style = MaterialTheme.typography.bodySmall)
-        Text(language.pick("端點列表", "端点列表"), fontWeight = FontWeight.Bold)
-        Provider.entries.filter { it != Provider.CUSTOM }.forEach { provider ->
+        item {
+            Text(
+                language.pick("模型在聊天頁右上角選擇。", "模型在聊天页右上角选择。"),
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+            )
+        }
+        item { SectionTitle(language.pick("內建端點", "内置端点")) }
+        items(Provider.entries.filter { it != Provider.CUSTOM }, key = { it.name }) { provider ->
+            val keySaved = SecretStore.providerStorageKey(provider) in savedKeyIds
+            val badge = when {
+                settings.provider == provider -> EndpointBadge.CURRENT
+                keySaved -> EndpointBadge.KEY_SAVED
+                else -> EndpointBadge.NOT_SET
+            }
             ApiEndpointCard(
+                letter = provider.label.split(" ").take(2).map { it.first() }.joinToString("").uppercase(),
                 title = provider.label,
                 detail = provider.baseUrl,
-                badge = if (settings.provider == provider) language.pick("目前使用", "当前使用") else language.pick("內建", "内置"),
-                keySaved = SecretStore.providerStorageKey(provider) in savedKeyIds,
-                language = language,
+                badge = badge,
             ) { onEditBuiltIn(provider) }
         }
-        presets.forEach { preset ->
+        item { SectionTitle(language.pick("自訂端點", "自定义端点")) }
+        if (presets.isEmpty()) {
+            item {
+                Text(
+                    language.pick("尚無自訂端點。", "尚无自定义端点。"),
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        items(presets, key = { it.id }) { preset ->
+            val badge = if (settings.provider == Provider.CUSTOM && preset.baseUrl.trimEnd('/') == settings.customBaseUrl.trimEnd('/')) EndpointBadge.CURRENT else EndpointBadge.HTTP
             ApiEndpointCard(
+                letter = "⚙",
                 title = preset.name,
                 detail = preset.baseUrl,
-                badge = if (settings.provider == Provider.CUSTOM && preset.baseUrl.trimEnd('/') == settings.customBaseUrl.trimEnd('/')) language.pick("目前使用", "当前使用") else language.pick("自訂", "自定义"),
-                keySaved = SecretStore.customEndpointStorageKey(preset.id) in savedKeyIds,
-                language = language,
+                badge = badge,
             ) { onEditCustom(preset.id) }
         }
-        OutlinedButton(
-            onClick = { onEditCustom(UUID.randomUUID().toString()) },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-        ) {
-            Icon(Icons.Default.Add, null)
-            Spacer(Modifier.width(6.dp))
-            Text(language.pick("新增自訂端點", "新增自定义端点"))
+        item {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .drawBehind {
+                        val stroke = 1.5.dp.toPx()
+                        drawRoundRect(
+                            color = Color(0xFF007AFF).copy(alpha = 0.55f),
+                            cornerRadius = CornerRadius(16.dp.toPx()),
+                            style = Stroke(width = stroke, pathEffect = PathEffect.dashPathEffect(floatArrayOf(14.dp.toPx(), 9.dp.toPx()))),
+                        )
+                    }
+                    .clickable { onEditCustom(UUID.randomUUID().toString()) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 14.dp)) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(6.dp))
+                    Text(language.pick("新增自訂端點", "新增自定义端点"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun ApiEndpointCard(
+    letter: String,
     title: String,
     detail: String,
-    badge: String,
-    keySaved: Boolean,
-    language: AppLanguage,
+    badge: EndpointBadge,
     onClick: () -> Unit,
 ) {
-    val cardShape = RoundedCornerShape(11.dp)
     Card(
-        Modifier.fillMaxWidth().clippedClickable(cardShape, onClick),
-        shape = cardShape,
-        colors = CardDefaults.cardColors(containerColor = minimalCardContainerColor()),
+        Modifier.fillMaxWidth().clippedClickable(RoundedCornerShape(16.dp), onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, Modifier.weight(1f), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(badge, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    letter,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
             }
-            Text(detail, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(if (keySaved) language.pick("Key 已保存", "Key 已保存") else language.pick("尚未保存 Key", "尚未保存 Key"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    detail,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            when (badge) {
+                EndpointBadge.CURRENT -> BadgeChip("✓ " + language.pick("目前使用", "当前使用"), Color(0xFF34C759).copy(alpha = 0.15f), Color(0xFF1FA84A))
+                EndpointBadge.KEY_SAVED -> BadgeChip(language.pick("Key 已保存", "Key 已保存"), MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f), MaterialTheme.colorScheme.onSurfaceVariant)
+                EndpointBadge.NOT_SET -> BadgeChip(language.pick("未設定", "未设定"), MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f), MaterialTheme.colorScheme.onSurfaceVariant)
+                EndpointBadge.HTTP -> BadgeChip("HTTP", Color(0xFFFF9500).copy(alpha = 0.15f), Color(0xFFC77700))
+            }
         }
+    }
+}
+
+@Composable
+private fun BadgeChip(text: String, bg: Color, fg: Color) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(99.dp))
+            .background(bg)
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Text(text, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = fg)
     }
 }
 
