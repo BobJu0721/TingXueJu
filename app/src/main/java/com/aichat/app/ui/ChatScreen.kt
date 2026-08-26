@@ -258,29 +258,44 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
     if (renameDialogVisible) {
         AlertDialog(
             onDismissRequest = { renameDialogVisible = false },
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(22.dp),
             containerColor = MaterialTheme.colorScheme.surface,
-            title = { Text(language.pick("重新命名對話", "重新命名对话")) },
+            title = {
+                Text(
+                    language.pick("重新命名對話", "重新命名对话"),
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            },
             text = {
                 OutlinedTextField(
                     renameText,
                     { renameText = it },
                     Modifier.fillMaxWidth(),
-                    label = { Text(language.pick("對話名稱", "对话名称")) },
+                    placeholder = { Text(language.pick("對話名稱", "对话名称"), fontSize = 14.sp) },
                     singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                    ),
                 )
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         viewModel.renameConversation(renameText)
                         renameDialogVisible = false
                     },
                     enabled = renameText.isNotBlank(),
-                ) { Text(language.pick("儲存", "保存")) }
+                    shape = RoundedCornerShape(14.dp),
+                ) { Text(language.pick("儲存", "保存"), fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
-                TextButton(onClick = { renameDialogVisible = false }) { Text(language.pick("取消", "取消")) }
+                TextButton(onClick = { renameDialogVisible = false }) { Text(language.pick("取消", "取消"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             },
         )
     }
