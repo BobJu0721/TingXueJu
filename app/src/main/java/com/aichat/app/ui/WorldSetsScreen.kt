@@ -79,8 +79,24 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
     val templates = viewModel.worldTemplates
     var showTemplates by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<WorldSetEntity?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var pendingImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingImportName by remember { mutableStateOf("") }
+    var pendingImportSize by remember { mutableStateOf(0L) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { viewModel.importDocument(it, ImportTarget.WORLD_SET) }
+        uri?.let {
+            var n = "document"
+            var s = 0L
+            context.contentResolver.query(it, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { c ->
+                if (c.moveToFirst()) {
+                    n = c.getString(0) ?: n
+                    s = if (c.isNull(1)) 0L else c.getLong(1)
+                }
+            }
+            pendingImportName = n
+            pendingImportSize = s
+            pendingImportUri = it
+        }
     }
 
     Scaffold(
@@ -222,6 +238,70 @@ internal fun WorldSetsScreen(viewModel: WorldSetsViewModel, onBack: () -> Unit, 
                 pendingDelete = null
             },
             onDismiss = { pendingDelete = null },
+        )
+    }
+
+    pendingImportUri?.let { uri ->
+        val kb = (pendingImportSize / 1024L).coerceAtLeast(1L)
+        val calls = (pendingImportSize / 2048L).coerceAtLeast(1L)
+        AlertDialog(
+            onDismissRequest = { pendingImportUri = null },
+            shape = RoundedCornerShape(22.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text(language.pick("由 AI 整理匯入", "由 AI 整理汇入"), fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        language.pick("上傳文件後，AI 將自動拆解為世界設定條目並建立關鍵詞。", "上传文件后，AI 将自动拆解为世界设定条目并建立关键词。"),
+                        fontSize = 14.sp,
+                        lineHeight = 21.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Text("📄", fontSize = 18.sp) }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(pendingImportName, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.height(3.dp))
+                            Row {
+                                Text("$kb KB · 預估 AI 呼叫 ", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("${calls} 次", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.importDocument(uri, ImportTarget.WORLD_SET)
+                        pendingImportUri = null
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                ) { Text(language.pick("開始匯入", "开始汇入"), fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingImportUri = null }) { Text(language.pick("取消", "取消"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            },
         )
     }
 
