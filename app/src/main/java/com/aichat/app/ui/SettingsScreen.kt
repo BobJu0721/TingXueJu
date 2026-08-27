@@ -891,27 +891,27 @@ internal fun ModelsScreen(
                                 Column(Modifier.weight(1f)) {
                                     Text(
                                         if (isManual) language.pick("使用「$model」", "使用「$model」") else model,
+                                        modifier = Modifier.fillMaxWidth(),
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace,
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
                                         if (isManual) language.pick("自訂模型 ID", "自定义模型 ID") else "Model",
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                }
-                                if (model == selected) {
-                                    Box(
-                                        Modifier
-                                            .clip(RoundedCornerShape(99.dp))
-                                            .background(Color(0xFF34C759).copy(alpha = 0.15f))
-                                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                                    ) {
-                                        Text("✓ " + language.pick("使用中", "使用中"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1FA84A))
+                                    if (model == selected) {
+                                        Box(
+                                            Modifier
+                                                .padding(top = 6.dp)
+                                                .clip(RoundedCornerShape(99.dp))
+                                                .background(Color(0xFF34C759).copy(alpha = 0.15f))
+                                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                                        ) {
+                                            Text("✓ " + language.pick("使用中", "使用中"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1FA84A))
+                                        }
                                     }
                                 }
                             }

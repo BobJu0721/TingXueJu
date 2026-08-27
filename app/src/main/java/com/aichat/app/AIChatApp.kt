@@ -52,6 +52,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel as composeViewModel
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
@@ -238,7 +240,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
     val colors = remember(darkTheme) { iosColorScheme(darkTheme) }
     CompositionLocalProvider(LocalOnBackPressedDispatcherOwner provides navBackDispatcherOwner) {
     MaterialTheme(colorScheme = colors) {
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             NavHost(
                 navController = navController,
                 startDestination = AppRoute.HOME,
@@ -249,7 +251,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                     slideOutHorizontally(animationSpec = tween(easing = LinearEasing)) { it }
                 },
             ) {
-                composable(AppRoute.HOME) {
+                page(AppRoute.HOME) {
                     RootPager(
                         chatViewModel,
                         settingsViewModel,
@@ -262,9 +264,9 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                         { selectedRoot = it },
                     )
                 }
-                composable(AppRoute.CHAT) { ChatScreen(chatViewModel, language) { navController.navigateUp() } }
+                page(AppRoute.CHAT) { ChatScreen(chatViewModel, language) { navController.navigateUp() } }
                 navigation(startDestination = AppRoute.API_SETTINGS_LIST, route = AppRoute.API_SETTINGS) {
-                    composable(AppRoute.API_SETTINGS_LIST) {
+                    page(AppRoute.API_SETTINGS_LIST) {
                         ApiSettingsScreen(
                             settingsViewModel,
                             language,
@@ -273,18 +275,18 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                             onEditCustom = { navController.navigate(AppRoute.apiSettingsCustom(it)) },
                         )
                     }
-                    composable(AppRoute.API_SETTINGS_BUILT_IN) { entry ->
+                    page(AppRoute.API_SETTINGS_BUILT_IN) { entry ->
                         val provider = entry.arguments?.getString("provider")
                             ?.let { name -> Provider.entries.firstOrNull { it.name == name } }
-                            ?: return@composable
+                            ?: return@page
                         BuiltInEndpointScreen(settingsViewModel, provider, language) { navController.navigateUp() }
                     }
-                    composable(AppRoute.API_SETTINGS_CUSTOM) { entry ->
-                        val id = entry.arguments?.getString("id") ?: return@composable
+                    page(AppRoute.API_SETTINGS_CUSTOM) { entry ->
+                        val id = entry.arguments?.getString("id") ?: return@page
                         CustomEndpointScreen(settingsViewModel, id, language) { navController.navigateUp() }
                     }
                 }
-                composable(AppRoute.MODELS) {
+                page(AppRoute.MODELS) {
                     ModelsScreen(
                         viewModel = settingsViewModel,
                         selected = settings.model,
@@ -294,11 +296,11 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                         onBack = { navController.navigateUp() },
                     )
                 }
-                composable(AppRoute.PROFILE_EDIT) { ProfileEditScreen(profilesViewModel, language) { navController.navigateUp() } }
-                composable(AppRoute.WORLD_SETS) { WorldSetsScreen(worldSetsViewModel, { navController.navigateUp() }, language) }
-                composable(AppRoute.WORLD_SET_EDIT) { WorldSetEditScreen(worldSetsViewModel, language) { navController.navigateUp() } }
-                composable(AppRoute.NEW_CHAT) { NewChatScreen(newChatViewModel, { navController.navigateUp() }, language) }
-                composable(AppRoute.CHAT_INFO) { ChatInfoScreen(chatViewModel, language) { navController.navigateUp() } }
+                page(AppRoute.PROFILE_EDIT) { ProfileEditScreen(profilesViewModel, language) { navController.navigateUp() } }
+                page(AppRoute.WORLD_SETS) { WorldSetsScreen(worldSetsViewModel, { navController.navigateUp() }, language) }
+                page(AppRoute.WORLD_SET_EDIT) { WorldSetEditScreen(worldSetsViewModel, language) { navController.navigateUp() } }
+                page(AppRoute.NEW_CHAT) { NewChatScreen(newChatViewModel, { navController.navigateUp() }, language) }
+                page(AppRoute.CHAT_INFO) { ChatInfoScreen(chatViewModel, language) { navController.navigateUp() } }
             }
             HalfProgressBackBridge(
                 enabled = hasBackTarget,
@@ -376,6 +378,15 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
     }
     }
 }
+// Keep the opaque page inside each destination so it moves with push/pop transitions.
+private fun NavGraphBuilder.page(route: String, content: @Composable (NavBackStackEntry) -> Unit) {
+    composable(route) { entry ->
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            content(entry)
+        }
+    }
+}
+
 @Composable
 private fun RootPager(
     chatViewModel: ChatViewModel,

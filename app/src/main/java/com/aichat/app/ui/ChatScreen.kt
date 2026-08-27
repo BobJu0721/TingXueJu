@@ -55,7 +55,8 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val contexts by viewModel.generationContexts.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val darkTheme = isSystemInDarkTheme()
+    val activeAssistantMessageId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
     val characters by viewModel.characters.collectAsStateWithLifecycle()
     val characterName = conversation?.characterId?.let { id -> characters.find { it.id == id }?.name }
@@ -147,6 +148,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                         Column(
                             Modifier
                                 .weight(1f)
+                                .padding(horizontal = 8.dp)
                                 .clip(RoundedCornerShape(16.dp))
                                 .clickable {
                                     renameText = conversation?.title.orEmpty()
@@ -165,6 +167,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                             )
                             Spacer(Modifier.height(2.dp))
                             Surface(
+                                modifier = Modifier.widthIn(max = 240.dp),
                                 shape = RoundedCornerShape(99.dp),
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
@@ -177,6 +180,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.primary,
                                     maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
@@ -214,6 +218,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                             bubbleOpacity = conversation?.messageBubbleOpacity ?: 1f,
                             characterName = characterName,
                             characterSeed = conversation?.characterId ?: "ai",
+                            isGenerating = message.id == activeAssistantMessageId,
                             actionsVisible = actionMessageId == message.id,
                             onToggleActions = {
                                 actionMessageId = if (actionMessageId == message.id) null else message.id
@@ -311,7 +316,7 @@ private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage) {
     Surface(Modifier.navigationBarsPadding().imePadding(), color = iosBarColor()) {
         Column {
             Hairline()
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     input,
                     viewModel::setInput,
@@ -364,6 +369,7 @@ private fun MessageBubble(
     bubbleOpacity: Float,
     characterName: String?,
     characterSeed: String,
+    isGenerating: Boolean,
     actionsVisible: Boolean,
     onToggleActions: () -> Unit,
     onEdit: (String, String) -> Unit,
@@ -376,7 +382,7 @@ private fun MessageBubble(
     var editText by remember(message.id, message.content) { mutableStateOf(message.content) }
     val user = message.role == "user"
     val reasoning = if (user) "" else reasoningContent.trim()
-    val canShowActions = message.content.isNotBlank()
+    val canShowActions = message.content.isNotBlank() || reasoning.isNotBlank()
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     LaunchedEffect(actionsVisible, canShowActions) {
         if (actionsVisible && canShowActions) {
@@ -438,7 +444,10 @@ private fun MessageBubble(
                                 SelectionContainer {
                                     Text(
                                         reasoning,
-                                        Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clickable(enabled = canShowActions, onClick = onToggleActions)
+                                            .padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -449,7 +458,11 @@ private fun MessageBubble(
                     }
                     Spacer(Modifier.height(8.dp))
                 }
-                if (message.content.isBlank()) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp) else SelectionContainer { MarkdownText(message.content) }
+                if (message.content.isNotBlank()) {
+                    SelectionContainer { MarkdownText(message.content) }
+                } else if (!user && isGenerating) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                }
                 if (worldHits.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -507,7 +520,7 @@ private fun MessageBubble(
                 modifier = (if (user) Modifier.fillMaxWidth(.86f) else Modifier.padding(start = 50.dp)).padding(top = 4.dp),
                 horizontalArrangement = Arrangement.Start,
             ) {
-                IconButton(onClick = { clipboard.setText(AnnotatedString(message.content)) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
+                IconButton(onClick = { clipboard.setText(AnnotatedString(message.content.ifBlank { reasoning })) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
                 IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
                 IconButton(onClick = { onResend(message.id) }) { Icon(Icons.Default.Refresh, language.pick("重新發送", "重新发送"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
             }

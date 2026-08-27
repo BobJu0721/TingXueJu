@@ -148,7 +148,8 @@ internal fun NewChatScreen(viewModel: NewChatViewModel, onBack: () -> Unit, lang
                     RadioCard(
                         selected = greeting == option,
                         title = if (index == 0) language.pick("預設開場白", "预设开场白") else language.pick("替代開場白 $index", "替代开场白 $index"),
-                        subtitle = option.replace("*", "").take(40),
+                        subtitle = option.replace("*", ""),
+                        subtitleMaxLines = Int.MAX_VALUE,
                         onClick = { viewModel.selectNewChatGreeting(option) },
                     )
                 }

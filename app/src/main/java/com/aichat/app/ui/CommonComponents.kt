@@ -2,6 +2,7 @@ package com.aichat.app.ui
 
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
+import android.graphics.Rect
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -55,7 +56,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import java.io.File
-import kotlin.math.min
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 internal fun Modifier.clippedClickable(shape: Shape, onClick: () -> Unit): Modifier =
@@ -182,7 +183,7 @@ internal fun ChatBackground(path: String, darkTheme: Boolean, targetWidthPx: Int
             bitmap = image,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Fit,
+            contentScale = ContentScale.Crop,
         )
         Box(Modifier.fillMaxSize().background(if (darkTheme) Color.Black.copy(alpha = 0.48f) else Color.White.copy(alpha = 0.54f)))
     }
@@ -192,13 +193,20 @@ private fun decodeChatBackground(path: String, targetWidthPx: Int, targetHeightP
     ImageDecoder.decodeBitmap(ImageDecoder.createSource(File(path))) { decoder, info, _ ->
         val (width, height) = fittedImageSize(info.size.width, info.size.height, targetWidthPx, targetHeightPx)
         if (width != info.size.width || height != info.size.height) decoder.setTargetSize(width, height)
+        // Crop in scaled coordinates so wide images do not retain off-screen bitmap pixels.
+        val cropScale = minOf(1f, width.toFloat() / targetWidthPx, height.toFloat() / targetHeightPx)
+        val cropWidth = (targetWidthPx * cropScale).roundToInt().coerceIn(1, width)
+        val cropHeight = (targetHeightPx * cropScale).roundToInt().coerceIn(1, height)
+        val left = (width - cropWidth) / 2
+        val top = (height - cropHeight) / 2
+        decoder.setCrop(Rect(left, top, left + cropWidth, top + cropHeight))
         decoder.allocator = ImageDecoder.ALLOCATOR_HARDWARE
     }
 }.getOrNull()
 
 internal fun fittedImageSize(sourceWidth: Int, sourceHeight: Int, targetWidth: Int, targetHeight: Int): Pair<Int, Int> {
     if (sourceWidth <= 0 || sourceHeight <= 0 || targetWidth <= 0 || targetHeight <= 0) return 1 to 1
-    val scale = min(targetWidth.toFloat() / sourceWidth, targetHeight.toFloat() / sourceHeight).coerceAtMost(1f)
+    val scale = max(targetWidth.toFloat() / sourceWidth, targetHeight.toFloat() / sourceHeight).coerceAtMost(1f)
     return (sourceWidth * scale).roundToInt().coerceAtLeast(1) to
         (sourceHeight * scale).roundToInt().coerceAtLeast(1)
 }
@@ -366,7 +374,13 @@ internal fun SectionTitle(text: String, badge: String? = null) {
 
 /** Rounded radio-select card. */
 @Composable
-internal fun RadioCard(selected: Boolean, title: String, subtitle: String?, onClick: () -> Unit) {
+internal fun RadioCard(
+    selected: Boolean,
+    title: String,
+    subtitle: String?,
+    subtitleMaxLines: Int = 1,
+    onClick: () -> Unit,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -396,7 +410,7 @@ internal fun RadioCard(selected: Boolean, title: String, subtitle: String?, onCl
             Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!subtitle.isNullOrBlank()) {
                 Spacer(Modifier.height(3.dp))
-                Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = subtitleMaxLines, overflow = TextOverflow.Ellipsis)
             }
         }
     }
