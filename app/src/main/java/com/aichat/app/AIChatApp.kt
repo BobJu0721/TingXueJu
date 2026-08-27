@@ -469,7 +469,7 @@ internal fun RootBottomBar(
                 CompactBottomItem(language.pick("\u8cc7\u6599\u5eab", "\u8d44\u6599\u5e93"), Icons.Default.Storage, selected == Screen.LIBRARY) { onSelect(Screen.LIBRARY) }
                 CompactBottomItem(language.pick("\u8a2d\u5b9a", "\u8bbe\u7f6e"), Icons.Default.Settings, selected == Screen.SETTINGS) { onSelect(Screen.SETTINGS) }
             }
-            Spacer(Modifier.navigationBarsPadding().height(10.dp))
+            Spacer(Modifier.height(10.dp))
         }
     }
 }
