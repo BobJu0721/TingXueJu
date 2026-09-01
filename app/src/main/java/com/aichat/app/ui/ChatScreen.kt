@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.*
 import com.aichat.app.data.*
+import com.aichat.app.ui.theme.Ios
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -53,8 +55,11 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val contexts by viewModel.generationContexts.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val darkTheme = isSystemInDarkTheme()
+    val activeAssistantMessageId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
+    val characters by viewModel.characters.collectAsStateWithLifecycle()
+    val characterName = conversation?.characterId?.let { id -> characters.find { it.id == id }?.name }
     val selectedId by viewModel.selectedConversationId.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val chatScope = rememberCoroutineScope()
@@ -127,19 +132,72 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0.dp),
             topBar = {
-                CompactTopBar(
-                    title = conversation?.title?.ifBlank { null } ?: language.pick("聽雪居", "听雪居"),
-                    subtitle = settings.model,
-                    navigationIcon = { Back(language, onBack) },
-                    onTitleClick = {
-                        renameText = conversation?.title.orEmpty()
-                        renameDialogVisible = conversation != null
-                    },
-                    actions = {
-                        IconButton(onClick = viewModel::openChatInfo) { Icon(Icons.Default.Info, language.pick("對話資訊", "对话信息")) }
-                        IconButton(onClick = viewModel::openModels) { Icon(Icons.Default.Tune, language.pick("選擇模型", "选择模型")) }
-                    },
-                )
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth().statusBarsPadding().height(68.dp).padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .padding(start = 6.dp)
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Back(language, onBack) }
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .padding(horizontal = 8.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable {
+                                    renameText = conversation?.title.orEmpty()
+                                    renameDialogVisible = conversation != null
+                                }
+                                .padding(vertical = 2.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                conversation?.title?.ifBlank { null } ?: language.pick("聽雪居", "听雪居"),
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Surface(
+                                modifier = Modifier.widthIn(max = 240.dp),
+                                shape = RoundedCornerShape(99.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                                onClick = viewModel::openModels,
+                            ) {
+                                Text(
+                                    "⚡ " + settings.model,
+                                    Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        Box(
+                            Modifier
+                                .padding(end = 6.dp)
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                                .clickable(onClick = viewModel::openChatInfo),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Default.Info, language.pick("對話資訊", "对话信息"), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    Hairline()
+                }
             },
             bottomBar = { MessageComposer(viewModel, language) },
         ) { padding ->
@@ -158,6 +216,9 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                             reasoningContent = contextMap[message.id]?.second.orEmpty(),
                             language = language,
                             bubbleOpacity = conversation?.messageBubbleOpacity ?: 1f,
+                            characterName = characterName,
+                            characterSeed = conversation?.characterId ?: "ai",
+                            isGenerating = message.id == activeAssistantMessageId,
                             actionsVisible = actionMessageId == message.id,
                             onToggleActions = {
                                 actionMessageId = if (actionMessageId == message.id) null else message.id
@@ -190,8 +251,8 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                             }
                         },
                         containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                        shape = RoundedCornerShape(24.dp),
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        shape = CircleShape,
                     ) {
                         Icon(Icons.Default.KeyboardArrowDown, language.pick("回到底部", "回到底部"))
                     }
@@ -202,29 +263,44 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
     if (renameDialogVisible) {
         AlertDialog(
             onDismissRequest = { renameDialogVisible = false },
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(22.dp),
             containerColor = MaterialTheme.colorScheme.surface,
-            title = { Text(language.pick("重新命名對話", "重新命名对话")) },
+            title = {
+                Text(
+                    language.pick("重新命名對話", "重新命名对话"),
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            },
             text = {
                 OutlinedTextField(
                     renameText,
                     { renameText = it },
                     Modifier.fillMaxWidth(),
-                    label = { Text(language.pick("對話名稱", "对话名称")) },
+                    placeholder = { Text(language.pick("對話名稱", "对话名称"), fontSize = 14.sp) },
                     singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                    ),
                 )
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         viewModel.renameConversation(renameText)
                         renameDialogVisible = false
                     },
                     enabled = renameText.isNotBlank(),
-                ) { Text(language.pick("儲存", "保存")) }
+                    shape = RoundedCornerShape(14.dp),
+                ) { Text(language.pick("儲存", "保存"), fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
-                TextButton(onClick = { renameDialogVisible = false }) { Text(language.pick("取消", "取消")) }
+                TextButton(onClick = { renameDialogVisible = false }) { Text(language.pick("取消", "取消"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             },
         )
     }
@@ -237,30 +313,49 @@ private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage) {
     val streaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    Surface(Modifier.imePadding(), color = MaterialTheme.colorScheme.background) { Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
-        OutlinedTextField(
-            input,
-            viewModel::setInput,
-            Modifier.weight(1f),
-            placeholder = { Text(language.pick("輸入訊息", "输入消息")) },
-            maxLines = 5,
-            shape = RoundedCornerShape(24.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                focusedBorderColor = Color.Transparent,
-                unfocusedBorderColor = Color.Transparent,
-            ),
-        )
-        IconButton(onClick = {
-            if (streaming) viewModel.stopStreaming()
-            else {
-                viewModel.send()
-                focusManager.clearFocus()
-                keyboard?.hide()
+    Surface(Modifier.navigationBarsPadding().imePadding(), color = iosBarColor()) {
+        Column {
+            Hairline()
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    input,
+                    viewModel::setInput,
+                    Modifier.weight(1f),
+                    placeholder = { Text(language.pick("輸入訊息", "输入消息")) },
+                    maxLines = 5,
+                    shape = RoundedCornerShape(24.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                    ),
+                )
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(if (streaming) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                        .clickable {
+                            if (streaming) viewModel.stopStreaming()
+                            else {
+                                viewModel.send()
+                                focusManager.clearFocus()
+                                keyboard?.hide()
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (streaming) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
+                        if (streaming) language.pick("停止", "停止") else language.pick("送出", "发送"),
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
-        }) { Icon(if (streaming) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send, if (streaming) language.pick("停止", "停止") else language.pick("送出", "发送")) }
-    } }
+        }
+    }
 }
 
 
@@ -272,6 +367,9 @@ private fun MessageBubble(
     reasoningContent: String,
     language: AppLanguage,
     bubbleOpacity: Float,
+    characterName: String?,
+    characterSeed: String,
+    isGenerating: Boolean,
     actionsVisible: Boolean,
     onToggleActions: () -> Unit,
     onEdit: (String, String) -> Unit,
@@ -284,7 +382,7 @@ private fun MessageBubble(
     var editText by remember(message.id, message.content) { mutableStateOf(message.content) }
     val user = message.role == "user"
     val reasoning = if (user) "" else reasoningContent.trim()
-    val canShowActions = message.content.isNotBlank()
+    val canShowActions = message.content.isNotBlank() || reasoning.isNotBlank()
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     LaunchedEffect(actionsVisible, canShowActions) {
         if (actionsVisible && canShowActions) {
@@ -299,60 +397,130 @@ private fun MessageBubble(
         horizontalAlignment = if (user) Alignment.End else Alignment.Start,
     ) {
         val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+        // iMessage-style: outgoing = systemBlue, incoming = gray fill, tail corner at the speaking side
         val bubbleColor = when {
-            user && dark -> Color(0xFF2B2B2B)
-            user -> Color(0xFFF1F1F1)
-            dark -> MaterialTheme.colorScheme.surface
-            else -> MaterialTheme.colorScheme.background
+            user && dark -> Ios.BlueDark
+            user -> Ios.BlueLight
+            dark -> Ios.FillDark
+            else -> Color(0xFFE9E9EB)
         }
-        val bubbleShape = RoundedCornerShape(24.dp)
-        Surface(
-            Modifier
-                .fillMaxWidth(if (user) .86f else .96f)
-                .clip(bubbleShape)
-                .clickable(enabled = canShowActions, onClick = onToggleActions),
-            shape = bubbleShape,
-            color = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f)),
-            contentColor = if (dark) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onBackground,
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-        ) {
-            Column(Modifier.padding(12.dp)) {
+        val bubbleShape = if (user) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
+                          else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
+        val bubbleContent: @Composable () -> Unit = {
+            Column(Modifier.padding(14.dp)) {
                 if (reasoning.isNotBlank()) {
-                    TextButton(onClick = { reasoningExpanded = !reasoningExpanded }) {
-                        Icon(
-                            if (reasoningExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text("思考內容")
-                    }
-                    if (reasoningExpanded) {
-                        SelectionContainer {
-                            Text(reasoning, style = MaterialTheme.typography.bodySmall)
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (user) Color.White.copy(alpha = 0.14f) else if (dark) Color(0xFF3A3A3C) else Color(0xFFE3E3E8),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { reasoningExpanded = !reasoningExpanded }
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Default.Psychology, null, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(6.dp))
+                                Text("思考過程", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.weight(1f))
+                                Icon(
+                                    Icons.Default.ContentCopy,
+                                    contentDescription = language.pick("複製思考內容", "复制思考内容"),
+                                    modifier = Modifier.size(15.dp).clickable { clipboard.setText(AnnotatedString(reasoning)) },
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Icon(
+                                    if (reasoningExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(17.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (reasoningExpanded) {
+                                SelectionContainer {
+                                    Text(
+                                        reasoning,
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clickable(enabled = canShowActions, onClick = onToggleActions)
+                                            .padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+                                        fontSize = 13.sp,
+                                        lineHeight = 19.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                         }
-                        TextButton(onClick = { clipboard.setText(AnnotatedString(reasoning)) }) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("複製思考內容")
-                        }
                     }
-                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                    Spacer(Modifier.height(8.dp))
                 }
-                if (message.content.isBlank()) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else SelectionContainer { MarkdownText(message.content) }
+                if (message.content.isNotBlank()) {
+                    SelectionContainer { MarkdownText(message.content) }
+                } else if (!user && isGenerating) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                }
                 if (worldHits.isNotEmpty()) {
-                    TextButton(onClick = { worldInfoExpanded = !worldInfoExpanded }) { Text(language.pick("世界設定命中 ${worldHits.size} 條", "世界设定命中 ${worldHits.size} 条")) }
-                    if (worldInfoExpanded) Text(worldHits.joinToString("\n") { "• $it" }, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        language.pick("世界設定命中 ${worldHits.size} 條", "世界设定命中 ${worldHits.size} 条"),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (user) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { worldInfoExpanded = !worldInfoExpanded },
+                    )
+                    if (worldInfoExpanded) Text(worldHits.joinToString("\n") { "• $it" }, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (user) {
+            Surface(
+                Modifier
+                    .fillMaxWidth(0.86f)
+                    .clip(bubbleShape)
+                    .clickable(enabled = canShowActions, onClick = onToggleActions),
+                shape = bubbleShape,
+                color = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f)),
+                contentColor = Color.White,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+            ) { bubbleContent() }
+        } else {
+            Row(Modifier.fillMaxWidth()) {
+                AvatarCircle(characterName ?: "AI", characterSeed, size = 40.dp)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        characterName ?: "AI",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Surface(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(bubbleShape)
+                            .clickable(enabled = canShowActions, onClick = onToggleActions),
+                        shape = bubbleShape,
+                        color = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f)),
+                        contentColor = if (dark) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onBackground,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                    ) { bubbleContent() }
                 }
             }
         }
         if (canShowActions && actionsVisible) {
             Row(
-                modifier = (if (user) Modifier.fillMaxWidth(.86f) else Modifier).padding(top = 2.dp),
+                modifier = (if (user) Modifier.fillMaxWidth(.86f) else Modifier.padding(start = 50.dp)).padding(top = 4.dp),
                 horizontalArrangement = Arrangement.Start,
             ) {
-                IconButton(onClick = { clipboard.setText(AnnotatedString(message.content)) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
+                IconButton(onClick = { clipboard.setText(AnnotatedString(message.content.ifBlank { reasoning })) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
                 IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
                 IconButton(onClick = { onResend(message.id) }) { Icon(Icons.Default.Refresh, language.pick("重新發送", "重新发送"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
             }
@@ -361,26 +529,49 @@ private fun MessageBubble(
     if (editing) {
         AlertDialog(
             onDismissRequest = { editing = false },
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(22.dp),
             containerColor = MaterialTheme.colorScheme.surface,
-            title = { Text(if (user) language.pick("編輯自己的訊息", "编辑自己的消息") else language.pick("編輯 AI 訊息", "编辑 AI 消息")) },
-            text = {
-                OutlinedTextField(
-                    value = editText,
-                    onValueChange = { editText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 5,
-                    maxLines = 12,
-                    label = { Text(language.pick("訊息內容", "消息内容")) },
+            title = {
+                Text(
+                    language.pick("編輯訊息", "编辑消息"),
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    onEdit(message.id, editText)
-                    editing = false
-                }) { Text(language.pick("儲存", "保存")) }
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = editText,
+                        onValueChange = { editText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 5,
+                        maxLines = 12,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                        ),
+                    )
+                    Text(
+                        language.pick("編輯後會以此內容重新接續對話。", "编辑后会以此内容重新接续对话。"),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             },
-            dismissButton = { TextButton(onClick = { editing = false }) { Text(language.pick("取消", "取消")) } },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onEdit(message.id, editText)
+                        editing = false
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                ) { Text(language.pick("儲存", "保存"), fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { editing = false }) { Text(language.pick("取消", "取消"), color = MaterialTheme.colorScheme.onSurfaceVariant) } },
         )
     }
 }

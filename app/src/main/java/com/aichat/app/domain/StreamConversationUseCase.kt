@@ -22,7 +22,12 @@ class StreamConversationUseCase(
     private val worldInfoRepository: WorldInfoRepository,
     private val api: AiApiClient,
 ) {
-    suspend operator fun invoke(conversationId: String, settings: AppSettings, key: String) {
+    suspend operator fun invoke(
+        conversationId: String,
+        settings: AppSettings,
+        key: String,
+        onAssistantMessageCreated: (String) -> Unit = {},
+    ) {
         val conversation = conversationRepository.getConversation(conversationId) ?: return
         val history = conversationRepository.getMessages(conversationId)
         val worldIds = conversationRepository.getConversationWorldSetIds(conversationId)
@@ -38,7 +43,6 @@ class StreamConversationUseCase(
             settings.language,
         )
         val assistant = MessageEntity(UUID.randomUUID().toString(), conversationId, "assistant", "", System.currentTimeMillis() + 1)
-        conversationRepository.upsertMessage(assistant)
         val content = StringBuilder()
         val reasoningContent = StringBuilder()
         val activatedEntriesJson = toJsonStrings(prompt.activatedEntries.map { it.title })
@@ -65,6 +69,8 @@ class StreamConversationUseCase(
         }
 
         try {
+            onAssistantMessageCreated(assistant.id)
+            conversationRepository.upsertMessage(assistant)
             api.streamChat(
                 settings = settings,
                 apiKey = key,
@@ -88,7 +94,7 @@ class StreamConversationUseCase(
                     "\u0041\u0050\u0049 \u6ca1\u6709\u8fd4\u56de\u6587\u5b57\u5185\u5bb9\u3002",
                 ))
             }
-        } catch (_: CancellationException) {
+        } catch (error: CancellationException) {
             withContext(NonCancellable) {
                 if (content.isBlank()) {
                     conversationRepository.deleteMessage(assistant.id)
@@ -96,8 +102,11 @@ class StreamConversationUseCase(
                     flush(force = true, includeActivatedEntries = true)
                 }
             }
+            throw error
         } catch (error: Throwable) {
-            conversationRepository.deleteMessage(assistant.id)
+            withContext(NonCancellable) {
+                conversationRepository.deleteMessage(assistant.id)
+            }
             throw error
         }
     }

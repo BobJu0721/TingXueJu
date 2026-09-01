@@ -10,9 +10,12 @@ import com.aichat.app.data.MessageEntity
 import com.aichat.app.data.ProfileType
 import com.aichat.app.data.ReasoningMode
 import com.aichat.app.network.ApiException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -43,6 +46,7 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     val settings = settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
     val conversations = conversationRepository.observeConversations().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val personas = profileRepository.observeProfiles(ProfileType.PERSONA).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val characters = profileRepository.observeProfiles(ProfileType.CHARACTER).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val worldSets = worldInfoRepository.observeWorldSets().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val worldEntryCounts = worldInfoRepository.observeWorldEntryCounts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -65,6 +69,8 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     val input = _input.asStateFlow()
     private val _isStreaming = MutableStateFlow(false)
     val isStreaming = _isStreaming.asStateFlow()
+    private val _activeAssistantMessageId = MutableStateFlow<String?>(null)
+    val activeAssistantMessageId = _activeAssistantMessageId.asStateFlow()
     private val _error = MutableStateFlow<UiError?>(null)
     val error = _error.asStateFlow()
     private val _showUnsafeHttpWarning = MutableStateFlow(false)
@@ -264,7 +270,32 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         pendingResendMessageId = null
     }
     fun dismissUnsafeHttp() { pendingAction = null; pendingResendMessageId = null; _showUnsafeHttpWarning.value = false }
-    fun stopStreaming() { api.cancelActive(); streamJob?.cancel(); _isStreaming.value = false; showNotice(text("已停止生成", "已停止生成")) }
+    fun stopStreaming() {
+        _activeAssistantMessageId.value = null
+        streamJob?.cancel()
+        api.cancelActive()
+        _isStreaming.value = false
+        showNotice(text("已停止生成", "已停止生成"))
+    }
+
+    private fun launchGeneration(action: suspend () -> Unit) {
+        // Do not start another generation until the cancelled job finishes its database cleanup.
+        if (_isStreaming.value || streamJob?.isCompleted == false) return
+        _isStreaming.value = true
+        streamJob = viewModelScope.launch {
+            try {
+                action()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                currentCoroutineContext().ensureActive()
+                _error.value = mapError(error, text("生成失敗", "生成失败"), settings.value.language)
+            } finally {
+                _activeAssistantMessageId.value = null
+                _isStreaming.value = false
+            }
+        }
+    }
 
     private fun runWithUnsafeHttpConfirmation(action: PendingAction) {
         if (settings.value.usesUnsafeHttp) { pendingAction = action; _showUnsafeHttpWarning.value = true }
@@ -281,13 +312,13 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     private fun startNewMessage() {
         val content = _input.value.trim()
         if (content.isBlank()) return
-        _input.value = ""
-        streamJob = viewModelScope.launch {
+        launchGeneration {
+            _input.value = ""
             val conversationId = _selectedConversationId.value ?: run {
                 navigate(Screen.NEW_CHAT)
                 _input.value = content
                 showNotice(text("請先確認 Persona 與世界設定", "请先确认 Persona 与世界设定"))
-                return@launch
+                return@launchGeneration
             }
             val now = System.currentTimeMillis()
             conversationRepository.upsertMessage(MessageEntity(UUID.randomUUID().toString(), conversationId, "user", content, now))
@@ -298,7 +329,7 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
 
     private fun startRetry() {
         val conversationId = _selectedConversationId.value ?: return
-        streamJob = viewModelScope.launch {
+        launchGeneration {
             conversationRepository.getMessages(conversationId).lastOrNull()?.takeIf { it.role == "assistant" }?.let { conversationRepository.deleteMessage(it.id) }
             streamConversation(conversationId)
         }
@@ -306,9 +337,9 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
 
     private fun startResendFromMessage(messageId: String?) {
         if (messageId == null) return
-        streamJob = viewModelScope.launch {
-            val message = conversationRepository.getMessage(messageId) ?: return@launch
-            val conversation = conversationRepository.getConversation(message.conversationId) ?: return@launch
+        launchGeneration {
+            val message = conversationRepository.getMessage(messageId) ?: return@launchGeneration
+            val conversation = conversationRepository.getConversation(message.conversationId) ?: return@launchGeneration
             if (message.role == "assistant") {
                 conversationRepository.deleteMessagesAtOrAfter(message.conversationId, message.createdAt)
             } else {
@@ -337,22 +368,30 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
             )
             return
         }
-        _isStreaming.value = true
         try {
-            streamConversationUseCase(conversationId, current, key)
+            streamConversationUseCase(conversationId, current, key) { messageId ->
+                _activeAssistantMessageId.value = messageId
+            }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
+            _activeAssistantMessageId.value = null
+            currentCoroutineContext().ensureActive()
             if (allowAutoSummary && error is ApiException && error.isContextLengthError) {
                 runCatching { summarizeConversation(conversationId, current, key, keepRecentMessages = 8, mode = ManualSummaryMode.UN_SUMMARIZED)?.let { _selectedConversation.value = it } }
                     .onSuccess {
                         showNotice(current.language.pick("已摘要較早對話，正在重試", "已摘要较早对话，正在重试"))
                         streamConversation(conversationId, allowAutoSummary = false)
                     }
-                    .onFailure { _error.value = mapError(it, current.language.pick("自動摘要失敗", "自动摘要失败"), current.language) }
+                    .onFailure {
+                        currentCoroutineContext().ensureActive()
+                        _error.value = mapError(it, current.language.pick("自動摘要失敗", "自动摘要失败"), current.language)
+                    }
             } else {
                 _error.value = mapError(error, current.language.pick("生成失敗", "生成失败"), current.language)
             }
         } finally {
-            _isStreaming.value = false
+            _activeAssistantMessageId.value = null
         }
     }
 
@@ -384,10 +423,10 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     fun trimOldestContextAndRetry() {
         val id = _selectedConversationId.value ?: return
         clearError()
-        streamJob = viewModelScope.launch {
-            val conversation = conversationRepository.getConversation(id) ?: return@launch
+        launchGeneration {
+            val conversation = conversationRepository.getConversation(id) ?: return@launchGeneration
             val history = conversationRepository.getMessages(id).filter { it.content.isNotBlank() }
-            if (history.size <= 2) return@launch
+            if (history.size <= 2) return@launchGeneration
             val kept = history.drop(history.size / 2).first()
             conversationRepository.updateConversation(conversation.copy(contextStartAt = kept.createdAt))
             showNotice("")
