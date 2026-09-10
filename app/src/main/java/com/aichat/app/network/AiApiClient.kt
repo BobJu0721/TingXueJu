@@ -1,7 +1,6 @@
 package com.aichat.app.network
 
 import com.aichat.app.data.AppSettings
-import com.aichat.app.data.Provider
 import com.aichat.app.data.ReasoningMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -11,6 +10,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -27,11 +27,12 @@ internal data class StreamDelta(
     val reasoningContent: String = "",
 )
 
-class AiApiClient {
-    private val client = OkHttpClient.Builder()
+class AiApiClient(
+    private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
-        .build()
+        .build(),
+) {
 
     @Volatile
     private var activeCall: Call? = null
@@ -41,7 +42,7 @@ class AiApiClient {
             val request = requestBuilder(settings, apiKey, settings.resolvedModelsUrl).get().build()
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) throw ApiException(response.code, errorMessage(body))
+                if (!response.isSuccessful) throw response.apiError(settings, body)
                 val data = JSONObject(body).optJSONArray("data") ?: JSONArray()
                 buildList {
                     for (index in 0 until data.length()) {
@@ -58,6 +59,7 @@ class AiApiClient {
         reasoningMode: ReasoningMode,
         onToken: suspend (String) -> Unit,
         onReasoningToken: suspend (String) -> Unit = {},
+        onUsage: suspend (Long) -> Unit = {},
     ) = withContext(Dispatchers.IO) {
         val payload = chatPayload(settings, messages, stream = true, reasoningMode = reasoningMode)
         val request = requestBuilder(settings, apiKey, "${settings.resolvedBaseUrl}/chat/completions")
@@ -69,7 +71,7 @@ class AiApiClient {
             call.execute().use { response ->
                 if (!response.isSuccessful) {
                     val body = response.body?.string().orEmpty()
-                    throw ApiException(response.code, errorMessage(body))
+                    throw response.apiError(settings, body)
                 }
                 val source = response.body?.source() ?: throw IOException("伺服器沒有回傳內容")
                 val thinkTags = ThinkTagStreamParser()
@@ -90,7 +92,8 @@ class AiApiClient {
                     if (!line.startsWith("data:")) continue
                     val data = line.removePrefix("data:").trim()
                     if (data == "[DONE]") break
-                    val delta = parseStreamDelta(data)
+                    val delta = parseStreamDelta(data, settings, response.requestId())
+                    parseCompletionTokens(data)?.let { onUsage(it) }
                     if (delta.reasoningContent.isNotEmpty() && !rawReasoningSeen) {
                         structuredReasoningSeen = true
                         onReasoningToken(delta.reasoningContent)
@@ -120,7 +123,7 @@ class AiApiClient {
         try {
             call.execute().use { response ->
                 val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) throw ApiException(response.code, errorMessage(body))
+                if (!response.isSuccessful) throw response.apiError(settings, body)
                 JSONObject(body)
                     .optJSONArray("choices")
                     ?.optJSONObject(0)
@@ -168,38 +171,20 @@ class AiApiClient {
 
     private fun JSONObject.applyReasoning(settings: AppSettings, mode: ReasoningMode?) {
         if (mode == null) return
-        when (settings.provider) {
-            Provider.OPENROUTER, Provider.CLOUDFLARE, Provider.CUSTOM -> when (mode) {
-                ReasoningMode.AUTO -> Unit
-                ReasoningMode.ON -> put(
-                    "reasoning",
-                    JSONObject().put("enabled", true).put("exclude", false),
-                )
-                ReasoningMode.OFF -> put("reasoning", JSONObject().put("effort", "none"))
-            }
-            Provider.AGNES -> put(
-                "chat_template_kwargs",
-                JSONObject().put("enable_thinking", mode != ReasoningMode.OFF),
-            )
-            Provider.GROQ, Provider.CEREBRAS -> when (mode) {
-                ReasoningMode.AUTO -> Unit
-                ReasoningMode.ON -> {
-                    put("reasoning_format", "parsed")
-                    when {
-                        settings.model.contains("gpt-oss", ignoreCase = true) ->
-                            put("reasoning_effort", "medium")
-                        settings.provider == Provider.GROQ &&
-                            settings.model.contains("qwen", ignoreCase = true) ->
-                            put("reasoning_effort", "default")
-                    }
-                }
-                ReasoningMode.OFF -> put("reasoning_effort", "none")
-            }
-        }
+        validateReasoningMode(settings, mode)
+        reasoningPolicy(settings.provider, settings.model).applyTo(this, mode)
     }
-    internal fun parseStreamDelta(data: String): StreamDelta =
-        runCatching {
-            val choice = JSONObject(data)
+    internal fun parseStreamDelta(data: String, settings: AppSettings? = null, requestId: String? = null): StreamDelta {
+        val json = runCatching { JSONObject(data) }.getOrNull() ?: return StreamDelta()
+        // Keep provider failures outside the tolerant delta parser: errors must reach the caller.
+        if (ApiException.isErrorEnvelope(json)) {
+            val status = json.optInt("status", json.optJSONObject("error")?.optInt("status") ?: 0)
+                .takeIf { it in 400..599 } ?: 200
+            throw ApiException.fromBody(status, data, settings?.provider, requestId, isStreamError = true,
+                language = settings?.language ?: com.aichat.app.data.AppLanguage.TRADITIONAL_CHINESE)
+        }
+        return runCatching {
+            val choice = json
                 .optJSONArray("choices")
                 ?.optJSONObject(0)
             val delta = choice?.optJSONObject("delta")
@@ -210,6 +195,17 @@ class AiApiClient {
                 reasoningContent = delta.reasoningText().ifBlank { message.reasoningText() },
             )
         }.getOrDefault(StreamDelta())
+    }
+
+    internal fun parseCompletionTokens(data: String): Long? {
+        val json = runCatching { JSONObject(data) }.getOrNull() ?: return null
+        val usage = json.optJSONObject("usage")
+        val groqUsage = json.optJSONObject("x_groq")?.optJSONObject("usage")
+        return listOfNotNull(usage, groqUsage).firstNotNullOfOrNull {
+            val value = it.opt("completion_tokens") as? Number
+            value?.toDouble()?.takeIf { count -> count.isFinite() && count >= 0 && count < Long.MAX_VALUE.toDouble() && count % 1.0 == 0.0 }?.toLong()
+        }
+    }
 
     private fun JSONObject?.reasoningText(includeProviderSpecific: Boolean = true): String {
         if (this == null) return ""
@@ -264,18 +260,10 @@ class AiApiClient {
         val close = indexOf(THINK_CLOSE, firstText + THINK_OPEN.length)
         return if (close < 0) this else substring(close + THINK_CLOSE.length).trimStart()
     }
-    private fun errorMessage(body: String): String {
-        if (body.isBlank()) return "伺服器沒有提供錯誤細節"
-        return runCatching {
-            val json = JSONObject(body)
-            val error = json.opt("error")
-            when (error) {
-                is JSONObject -> error.optString("message", body)
-                is String -> error
-                else -> json.optString("message", body)
-            }
-        }.getOrDefault(body.take(500))
-    }
+    private fun Response.requestId(): String? = header("x-request-id") ?: header("request-id") ?: header("cf-ray")
+
+    private fun Response.apiError(settings: AppSettings, body: String) =
+        ApiException.fromBody(code, body, settings.provider, requestId(), language = settings.language)
 
     companion object {
         private const val THINK_OPEN = "<think>"
@@ -363,13 +351,4 @@ internal class ThinkTagStreamParser {
         const val OPEN = "<think>"
         const val CLOSE = "</think>"
     }
-}
-class ApiException(
-    val statusCode: Int,
-    override val message: String,
-) : IOException(message) {
-    val isContextLengthError: Boolean
-        get() = statusCode == 400 && listOf("context", "token", "length", "maximum").any {
-            message.contains(it, ignoreCase = true)
-        }
 }

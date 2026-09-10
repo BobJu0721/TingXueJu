@@ -69,7 +69,7 @@ interface ChatDao {
         if (context != null) upsertGenerationContext(context)
     }
 
-    @Query("UPDATE generation_contexts SET reasoningContent = '' WHERE messageId = :messageId")
+    @Query("UPDATE generation_contexts SET reasoningContent = '', outputTokenCount = NULL, tokenCountEstimated = 1, generationElapsedMillis = NULL WHERE messageId = :messageId")
     suspend fun clearReasoningContent(messageId: String)
 
     @Query("SELECT * FROM profiles WHERE type = :type ORDER BY updatedAt DESC")
@@ -152,7 +152,7 @@ interface ChatDao {
         ConversationWorldSetEntity::class,
         GenerationContextEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -209,13 +209,21 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE conversations ADD COLUMN reasoningMode TEXT NOT NULL DEFAULT 'AUTO'")
             }
         }
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE generation_contexts ADD COLUMN outputTokenCount INTEGER")
+                db.execSQL("ALTER TABLE generation_contexts ADD COLUMN tokenCountEstimated INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE generation_contexts ADD COLUMN generationElapsedMillis INTEGER")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "ai-chat.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build().also { instance = it }
             }
     }
 }

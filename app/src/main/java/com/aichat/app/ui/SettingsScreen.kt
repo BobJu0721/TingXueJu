@@ -47,6 +47,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.*
 import com.aichat.app.data.*
+import com.aichat.app.network.reasoningPolicy
+import com.aichat.app.network.ReasoningPolicy
+import com.aichat.app.network.retiredModelNotice
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -756,6 +759,8 @@ internal fun ModelsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val models = uiState.models
     val loading = uiState.isLoadingModels
+    val policy = reasoningPolicy(uiState.settings.provider, selected)
+    val retiredNotice = retiredModelNotice(uiState.settings.provider, selected, language)
     var query by remember { mutableStateOf("") }
     val filtered = remember(models, query) { filterModels(models, query) }
     val manualModel = remember(models, query) { manualModelCandidate(models, query) }
@@ -812,6 +817,8 @@ internal fun ModelsScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     SectionTitle(language.pick("思考模式", "思考模式"), badge = language.pick("僅在目前對話顯示", "仅在当前对话显示"))
+                    Text(selected, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -821,12 +828,13 @@ internal fun ModelsScreen(
                     ) {
                         ReasoningMode.entries.forEach { mode ->
                             val segSelected = reasoningMode == mode
+                            val modeEnabled = policy.supports(mode)
                             Box(
                                 Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(99.dp))
                                     .background(if (segSelected) MaterialTheme.colorScheme.surface else Color.Transparent)
-                                    .clickable { onReasoningModeChange(mode) }
+                                    .clickable(enabled = modeEnabled) { onReasoningModeChange(mode) }
                                     .padding(vertical = 10.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -838,12 +846,24 @@ internal fun ModelsScreen(
                                     },
                                     fontSize = 14.sp,
                                     fontWeight = if (segSelected) FontWeight.Bold else FontWeight.SemiBold,
-                                    color = if (segSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (!modeEnabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                        else if (segSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
                     }
+                    if (policy !in setOf(ReasoningPolicy.OPENROUTER_COMPATIBLE, ReasoningPolicy.AGNES)) {
+                        Text(policy.description(language), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (!policy.supports(reasoningMode)) {
+                        Text(language.pick("目前儲存的模式不受支援，請改選可用模式後再生成。", "当前保存的模式不受支持，请改选可用模式后再生成。"),
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                    }
                 }
+            }
+            retiredNotice?.let {
+                Text(it, Modifier.padding(horizontal = 22.dp, vertical = 4.dp), fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.error)
             }
             OutlinedTextField(
                 query,
@@ -902,6 +922,10 @@ internal fun ModelsScreen(
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
+                                    retiredModelNotice(uiState.settings.provider, model, language)?.let {
+                                        Text(language.pick("供應商已公告退役", "供应商已公告退役"),
+                                            fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                                    }
                                     if (model == selected) {
                                         Box(
                                             Modifier

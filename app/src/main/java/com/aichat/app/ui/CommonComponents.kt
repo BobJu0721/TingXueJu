@@ -227,8 +227,11 @@ internal fun ErrorDialog(error: UiError, language: AppLanguage, onDismiss: () ->
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(error.message, fontSize = 14.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurface)
+                Column(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SelectionContainer {
+                        Text(error.message, fontSize = 14.sp, lineHeight = 21.sp, color = MaterialTheme.colorScheme.onSurface)
+                    }
                     Text(error.suggestion, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -249,7 +252,8 @@ internal fun ErrorDialog(error: UiError, language: AppLanguage, onDismiss: () ->
                             onClick = onSettings,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                             shape = RoundedCornerShape(14.dp),
-                        ) { Text(language.pick("前往設定", "前往设置"), fontWeight = FontWeight.Bold) }
+                        ) { Text(if (error.kind == ErrorKind.MODEL_SELECTION) language.pick("調整思考模式", "调整思考模式")
+                            else language.pick("前往設定", "前往设置"), fontWeight = FontWeight.Bold) }
                         TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text(language.pick("關閉", "关闭"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }

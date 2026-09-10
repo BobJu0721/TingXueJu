@@ -80,6 +80,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
             context.messageId to (jsonStrings(context.activatedWorldEntriesJson) to context.reasoningContent)
         }
     }
+    val generationMap = remember(contexts) { contexts.associateBy { it.messageId } }
     val bottomAnchorIndex = messages.size
     LaunchedEffect(listState, messages.size) {
         snapshotFlow {
@@ -214,6 +215,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                             message = message,
                             worldHits = contextMap[message.id]?.first.orEmpty(),
                             reasoningContent = contextMap[message.id]?.second.orEmpty(),
+                            generationContext = generationMap[message.id],
                             language = language,
                             bubbleOpacity = conversation?.messageBubbleOpacity ?: 1f,
                             characterName = characterName,
@@ -359,12 +361,13 @@ private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage) {
 }
 
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun MessageBubble(
     message: MessageEntity,
     worldHits: List<String>,
     reasoningContent: String,
+    generationContext: GenerationContextEntity?,
     language: AppLanguage,
     bubbleOpacity: Float,
     characterName: String?,
@@ -516,13 +519,23 @@ private fun MessageBubble(
             }
         }
         if (canShowActions && actionsVisible) {
-            Row(
-                modifier = (if (user) Modifier.fillMaxWidth(.86f) else Modifier.padding(start = 50.dp)).padding(top = 4.dp),
-                horizontalArrangement = Arrangement.Start,
+            val metrics = remember(message.content, generationContext, user, language) {
+                messageMetricsLabels(message.content, generationContext, user, language)
+            }
+            FlowRow(
+                modifier = (if (user) Modifier.fillMaxWidth(.86f) else Modifier.fillMaxWidth().padding(start = 50.dp)).padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                IconButton(onClick = { clipboard.setText(AnnotatedString(message.content.ifBlank { reasoning })) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
-                IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
-                IconButton(onClick = { onResend(message.id) }) { Icon(Icons.Default.Refresh, language.pick("重新發送", "重新发送"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
+                Row {
+                    IconButton(onClick = { clipboard.setText(AnnotatedString(message.content.ifBlank { reasoning })) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
+                    IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
+                    IconButton(onClick = { onResend(message.id) }) { Icon(Icons.Default.Refresh, language.pick("重新發送", "重新发送"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
+                }
+                Column(Modifier.heightIn(min = 48.dp), verticalArrangement = Arrangement.Center) {
+                    Text(metrics.count, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(metrics.speed, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }

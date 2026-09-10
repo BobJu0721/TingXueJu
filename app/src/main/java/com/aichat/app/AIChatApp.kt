@@ -323,7 +323,15 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                         else -> worldSetsViewModel.clearError()
                     }
                 },
-                { navigateTo(Screen.SETTINGS) },
+                {
+                    when {
+                        chatError != null -> chatViewModel.clearError()
+                        settingsError != null -> settingsViewModel.clearError()
+                        profilesError != null -> profilesViewModel.clearError()
+                        else -> worldSetsViewModel.clearError()
+                    }
+                    navigateTo(if (current.kind == ErrorKind.MODEL_SELECTION) Screen.MODELS else Screen.SETTINGS)
+                },
                 chatViewModel::trimOldestContextAndRetry,
             ) {
                 when {

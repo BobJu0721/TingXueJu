@@ -10,6 +10,7 @@ import com.aichat.app.data.MessageEntity
 import com.aichat.app.data.ProfileType
 import com.aichat.app.data.ReasoningMode
 import com.aichat.app.network.ApiException
+import com.aichat.app.network.validateReasoningMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -313,6 +314,7 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         val content = _input.value.trim()
         if (content.isBlank()) return
         launchGeneration {
+            validateCurrentReasoningMode()
             _input.value = ""
             val conversationId = _selectedConversationId.value ?: run {
                 navigate(Screen.NEW_CHAT)
@@ -330,6 +332,7 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     private fun startRetry() {
         val conversationId = _selectedConversationId.value ?: return
         launchGeneration {
+            validateCurrentReasoningMode()
             conversationRepository.getMessages(conversationId).lastOrNull()?.takeIf { it.role == "assistant" }?.let { conversationRepository.deleteMessage(it.id) }
             streamConversation(conversationId)
         }
@@ -340,6 +343,7 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         launchGeneration {
             val message = conversationRepository.getMessage(messageId) ?: return@launchGeneration
             val conversation = conversationRepository.getConversation(message.conversationId) ?: return@launchGeneration
+            validateReasoningMode(settings.value, conversation.reasoningMode)
             if (message.role == "assistant") {
                 conversationRepository.deleteMessagesAtOrAfter(message.conversationId, message.createdAt)
             } else {
@@ -355,6 +359,12 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
             showNotice(text("已從這則訊息重新發送", "已从这则消息重新发送"))
             streamConversation(message.conversationId)
         }
+    }
+
+    private suspend fun validateCurrentReasoningMode() {
+        val id = _selectedConversationId.value ?: return
+        val conversation = conversationRepository.getConversation(id) ?: return
+        validateReasoningMode(settings.value, conversation.reasoningMode)
     }
 
     private suspend fun streamConversation(conversationId: String, allowAutoSummary: Boolean = true) {

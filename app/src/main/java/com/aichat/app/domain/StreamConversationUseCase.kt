@@ -8,6 +8,7 @@ import com.aichat.app.data.MessageEntity
 import com.aichat.app.data.ProfileRepository
 import com.aichat.app.data.WorldInfoRepository
 import com.aichat.app.network.AiApiClient
+import com.aichat.app.network.validateReasoningMode
 import com.aichat.app.pick
 import com.aichat.app.toJsonStrings
 import kotlinx.coroutines.CancellationException
@@ -29,6 +30,7 @@ class StreamConversationUseCase(
         onAssistantMessageCreated: (String) -> Unit = {},
     ) {
         val conversation = conversationRepository.getConversation(conversationId) ?: return
+        validateReasoningMode(settings, conversation.reasoningMode)
         val history = conversationRepository.getMessages(conversationId)
         val worldIds = conversationRepository.getConversationWorldSetIds(conversationId)
         val worldSets = if (worldIds.isEmpty()) emptyList() else worldInfoRepository.getWorldSets(worldIds)
@@ -49,16 +51,22 @@ class StreamConversationUseCase(
         val throttle = StreamWriteThrottle(STREAM_WRITE_INTERVAL_NANOS)
         var contentDirty = false
         var reasoningDirty = false
+        var metricsDirty = false
+        var meter: GenerationMeter? = null
 
         suspend fun flush(force: Boolean = false, includeActivatedEntries: Boolean = false) {
-            if (!contentDirty && !reasoningDirty && !includeActivatedEntries) return
+            if (!contentDirty && !reasoningDirty && !metricsDirty && !includeActivatedEntries) return
             if (!throttle.shouldWrite(System.nanoTime(), force)) return
             val message = if (contentDirty || includeActivatedEntries) assistant.copy(content = content.toString()) else null
-            val context = if (reasoningDirty || includeActivatedEntries) {
+            val metrics = meter?.snapshot(content.toString(), reasoningContent.toString())
+            val context = if (contentDirty || reasoningDirty || metricsDirty || includeActivatedEntries) {
                 GenerationContextEntity(
                     messageId = assistant.id,
                     activatedWorldEntriesJson = if (includeActivatedEntries) activatedEntriesJson else "[]",
                     reasoningContent = reasoningContent.toString(),
+                    outputTokenCount = metrics?.tokens,
+                    tokenCountEstimated = metrics?.estimated ?: true,
+                    generationElapsedMillis = metrics?.elapsedMillis,
                 )
             } else {
                 null
@@ -66,11 +74,13 @@ class StreamConversationUseCase(
             conversationRepository.upsertStreamingState(message, context)
             contentDirty = false
             reasoningDirty = false
+            metricsDirty = false
         }
 
         try {
             onAssistantMessageCreated(assistant.id)
             conversationRepository.upsertMessage(assistant)
+            meter = GenerationMeter()
             api.streamChat(
                 settings = settings,
                 apiKey = key,
@@ -84,6 +94,11 @@ class StreamConversationUseCase(
                 onReasoningToken = { token ->
                     reasoningContent.append(token)
                     reasoningDirty = true
+                    flush()
+                },
+                onUsage = { completionTokens ->
+                    meter?.recordUsage(completionTokens)
+                    metricsDirty = true
                     flush()
                 },
             )

@@ -11,6 +11,18 @@ import org.junit.Test
 class AiApiClientTest {
     private val message = listOf(ApiChatMessage("user", "hi"))
 
+    @Test fun usageParserReadsOutputNotPromptOrTotalAndToleratesMissingUsage() {
+        val client = AiApiClient()
+        assertEquals(42L, client.parseCompletionTokens("""{"usage":{"prompt_tokens":1000,"completion_tokens":42,"total_tokens":1042}}"""))
+        assertEquals(15L, client.parseCompletionTokens("""{"x_groq":{"usage":{"completion_tokens":15}}}"""))
+        assertEquals(0L, client.parseCompletionTokens("""{"usage":{"completion_tokens":0}}"""))
+        for (data in listOf("invalid", "{}", """{"usage":null}""", """{"usage":{"total_tokens":55}}""",
+            """{"usage":{"completion_tokens":-1}}""", """{"usage":{"completion_tokens":1.5}}""",
+            """{"usage":{"completion_tokens":"42"}}""")) {
+            assertEquals(null, client.parseCompletionTokens(data))
+        }
+    }
+
     @Test
     fun backgroundPayloadDoesNotAddReasoningControls() {
         val payload = AiApiClient().chatPayload(
@@ -89,8 +101,8 @@ class AiApiClientTest {
             stream = true,
             reasoningMode = ReasoningMode.ON,
         )
-        val cerebrasOff = client.chatPayload(
-            AppSettings(provider = Provider.CEREBRAS, model = "zai-glm-4.7"),
+        val groqOff = client.chatPayload(
+            AppSettings(provider = Provider.GROQ, model = "qwen/qwen3.8-27b"),
             message,
             stream = true,
             reasoningMode = ReasoningMode.OFF,
@@ -100,7 +112,7 @@ class AiApiClientTest {
         assertEquals("default", groqQwen.getString("reasoning_effort"))
         assertEquals("parsed", cerebrasGptOss.getString("reasoning_format"))
         assertEquals("medium", cerebrasGptOss.getString("reasoning_effort"))
-        assertEquals("none", cerebrasOff.getString("reasoning_effort"))
+        assertEquals("none", groqOff.getString("reasoning_effort"))
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.aichat.app.data
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -11,8 +12,8 @@ enum class Provider(
     val defaultModel: String,
 ) {
     OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1", "openrouter/free"),
-    GROQ("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
-    CEREBRAS("Cerebras", "https://api.cerebras.ai/v1", "llama-3.3-70b"),
+    GROQ("Groq", "https://api.groq.com/openai/v1", "openai/gpt-oss-120b"),
+    CEREBRAS("Cerebras", "https://api.cerebras.ai/v1", "gpt-oss-120b"),
     AGNES("Agnes", "https://apihub.agnes-ai.com/v1", "agnes-2.0-flash"),
     CLOUDFLARE(
         "Cloudflare Workers AI",
@@ -46,7 +47,7 @@ data class AppSettings(
     val provider: Provider = Provider.OPENROUTER,
     val customBaseUrl: String = "",
     val cloudflareAccountId: String = "",
-    val model: String = Provider.OPENROUTER.defaultModel,
+    val model: String = provider.defaultModel,
     val darkTheme: Boolean = false,
     val language: AppLanguage = AppLanguage.TRADITIONAL_CHINESE,
 ) {
@@ -170,6 +171,9 @@ data class GenerationContextEntity(
     @PrimaryKey val messageId: String,
     val activatedWorldEntriesJson: String = "[]",
     val reasoningContent: String = "",
+    val outputTokenCount: Long? = null,
+    @ColumnInfo(defaultValue = "1") val tokenCountEstimated: Boolean = true,
+    val generationElapsedMillis: Long? = null,
 )
 
 @Entity(tableName = "conversations")

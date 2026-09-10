@@ -24,7 +24,8 @@
 
 - **多端點管理**：內建 OpenRouter、Groq、Cerebras、Agnes、Cloudflare Workers AI，也可新增多個自訂 OpenAI 相容端點。
 - **模型與思考模式**：取得、搜尋或手動輸入模型 ID；每段對話可獨立設定「自動、開啟、關閉」思考模式。
-- **串流聊天**：即時顯示正文與可折疊的思考內容，支援複製、編輯、重新生成及快速回到最新訊息。
+- **串流聊天**：即時顯示正文與可折疊的思考內容；訊息操作列可查看輸出 token 數與平均 token/s。
+- **訊息操作**：支援複製、編輯、重新生成及快速回到最新訊息。
 - **角色與 Persona**：分別保存角色設定與使用者身份，可從 TXT、JSON、DOCX 文件交由 AI 整理成草稿。
 - **世界設定集**：依關鍵詞注入地點、人物、關係與規則，也能設定每次生成固定附加的條目。
 - **長對話管理**：手動摘要較早訊息，或在上下文過長時裁切並重試，不會刪除畫面中的原始聊天紀錄。
@@ -41,10 +42,10 @@
 
 ### 最新版本
 
-目前版本為 **v1.12**：
+目前版本為 **v1.13**：
 
-- [下載簽章版 APK：TingXueJu-v1.12-release.apk](https://github.com/BobJu0721/TingXueJu/releases/download/v1.12/TingXueJu-v1.12-release.apk)
-- [查看 v1.12 發布說明](https://github.com/BobJu0721/TingXueJu/releases/tag/v1.12)
+- [下載簽章版 APK：TingXueJu-v1.13-release.apk](https://github.com/BobJu0721/TingXueJu/releases/download/v1.13/TingXueJu-v1.13-release.apk)
+- [查看 v1.13 發布說明](https://github.com/BobJu0721/TingXueJu/releases/tag/v1.13)
 - [瀏覽所有 Releases](https://github.com/BobJu0721/TingXueJu/releases)
 
 安裝方式：
@@ -140,10 +141,10 @@ docs/                 文件與畫面資產
 
 ## 專案狀態
 
-- 最新穩定版本：**v1.12**
+- 最新穩定版本：**v1.13**
 - 最低系統版本：**Android 12 / API 31**
 - 目前僅支援雲端 API，不支援直接連接本地模型
-- v1.12 主要更新為介面重設計、思考模式相容性及導覽行為調整
+- v1.13 加入訊息 token／token/s 統計，並改善 API 端點、模型與思考模式相容性
 
 詳細版本內容請查看[更新公告](更新公告.md)與 [GitHub Releases](https://github.com/BobJu0721/TingXueJu/releases)。
 
