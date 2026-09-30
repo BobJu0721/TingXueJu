@@ -19,6 +19,11 @@ class ApiException(
             "reasoning_effort", "reasoning_format", "include_reasoning", "enable_thinking", "chat_template_kwargs",
         ).any { message.contains(it, ignoreCase = true) }
 
+    val isTokenLimitParameterError: Boolean
+        get() = statusCode in setOf(400, 422) && listOf(
+            "max_tokens", "max_completion_tokens", "maximum output", "output token",
+        ).any { message.contains(it, ignoreCase = true) }
+
     val isContextLengthError: Boolean
         get() {
             if (statusCode != 400 || isReasoningParameterError) return false

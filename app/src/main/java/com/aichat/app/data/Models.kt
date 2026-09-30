@@ -43,6 +43,14 @@ enum class ReasoningMode {
     OFF,
 }
 
+enum class ReplyLengthPreference { DEFAULT, SHORT, MEDIUM, DETAILED }
+
+enum class TokenLimitField { AUTO, MAX_TOKENS, MAX_COMPLETION_TOKENS }
+
+enum class MessageVersionSource { ORIGINAL, USER_EDIT, AI_EDIT, REGENERATED, CONTINUATION }
+
+enum class MessageVersionStatus { COMPLETE, PARTIAL, INTERRUPTED, DRAFT }
+
 data class AppSettings(
     val provider: Provider = Provider.OPENROUTER,
     val customBaseUrl: String = "",
@@ -159,16 +167,16 @@ data class ConversationWorldSetEntity(
     tableName = "generation_contexts",
     foreignKeys = [
         ForeignKey(
-            entity = MessageEntity::class,
+            entity = MessageVersionEntity::class,
             parentColumns = ["id"],
-            childColumns = ["messageId"],
+            childColumns = ["versionId"],
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index("messageId")],
+    indices = [Index("versionId")],
 )
 data class GenerationContextEntity(
-    @PrimaryKey val messageId: String,
+    @PrimaryKey val versionId: String,
     val activatedWorldEntriesJson: String = "[]",
     val reasoningContent: String = "",
     val outputTokenCount: Long? = null,
@@ -190,6 +198,12 @@ data class ConversationEntity(
     val backgroundImagePath: String = "",
     val messageBubbleOpacity: Float = 1f,
     val reasoningMode: ReasoningMode = ReasoningMode.AUTO,
+    @ColumnInfo(defaultValue = "0") val contextStartOrder: Long = 0,
+    @ColumnInfo(defaultValue = "0") val summaryThroughOrder: Long = 0,
+    @ColumnInfo(defaultValue = "'DEFAULT'") val replyLengthPreference: ReplyLengthPreference = ReplyLengthPreference.DEFAULT,
+    val maxOutputTokens: Int? = null,
+    @ColumnInfo(defaultValue = "'AUTO'") val tokenLimitField: TokenLimitField = TokenLimitField.AUTO,
+    @ColumnInfo(defaultValue = "0") val historyRevision: Long = 0,
 )
 
 @Entity(
@@ -202,7 +216,7 @@ data class ConversationEntity(
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index("conversationId")],
+    indices = [Index("conversationId"), Index(value = ["conversationId", "sortOrder"], unique = true)],
 )
 data class MessageEntity(
     @PrimaryKey val id: String,
@@ -210,4 +224,30 @@ data class MessageEntity(
     val role: String,
     val content: String,
     val createdAt: Long,
+    @ColumnInfo(defaultValue = "''") val currentVersionId: String = "",
+    @ColumnInfo(defaultValue = "0") val sortOrder: Long = 0,
+    @ColumnInfo(defaultValue = "0") val excluded: Boolean = false,
+)
+
+@Entity(
+    tableName = "message_versions",
+    foreignKeys = [
+        ForeignKey(
+            entity = MessageEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["messageId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("messageId"), Index(value = ["messageId", "versionNumber"], unique = true)],
+)
+data class MessageVersionEntity(
+    @PrimaryKey val id: String,
+    val messageId: String,
+    val versionNumber: Int,
+    val content: String,
+    val createdAt: Long,
+    val source: MessageVersionSource = MessageVersionSource.ORIGINAL,
+    val baseVersionId: String? = null,
+    val status: MessageVersionStatus = MessageVersionStatus.COMPLETE,
 )

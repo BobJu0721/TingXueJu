@@ -50,12 +50,20 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import kotlin.math.roundToInt
+
+private const val CHAT_SEARCH_ENABLED = false
+
 @Composable
 internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack: () -> Unit) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val contexts by viewModel.generationContexts.collectAsStateWithLifecycle()
+    val versions by viewModel.messageVersions.collectAsStateWithLifecycle()
+    val searchState by viewModel.searchState.collectAsStateWithLifecycle()
+    val pendingMutation by viewModel.pendingMutation.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val activeAssistantMessageId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
+    val streaming by viewModel.isStreaming.collectAsStateWithLifecycle()
+    val summarizing by viewModel.isSummarizingConversation.collectAsStateWithLifecycle()
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
     val characters by viewModel.characters.collectAsStateWithLifecycle()
@@ -75,13 +83,21 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
     var actionMessageId by remember(selectedId) { mutableStateOf<String?>(null) }
     var renameDialogVisible by remember(selectedId) { mutableStateOf(false) }
     var renameText by remember(selectedId, conversation?.title) { mutableStateOf(conversation?.title.orEmpty()) }
+    var searchExpanded by remember(selectedId) { mutableStateOf(false) }
+    var searchResultsMenu by remember(selectedId) { mutableStateOf(false) }
+    var highlightedMessageId by remember(selectedId) { mutableStateOf<String?>(null) }
+    val searchActive = CHAT_SEARCH_ENABLED && searchExpanded
     val contextMap = remember(contexts) {
-        contexts.associate { context ->
-            context.messageId to (jsonStrings(context.activatedWorldEntriesJson) to context.reasoningContent)
-        }
+        contexts.associateBy { it.versionId }
     }
-    val generationMap = remember(contexts) { contexts.associateBy { it.messageId } }
+    val versionMap = remember(versions) { versions.groupBy { it.messageId } }
     val bottomAnchorIndex = messages.size
+    LaunchedEffect(selectedId, CHAT_SEARCH_ENABLED) {
+        searchExpanded = false
+        searchResultsMenu = false
+        highlightedMessageId = null
+        viewModel.closeSearch()
+    }
     LaunchedEffect(listState, messages.size) {
         snapshotFlow {
             Triple(
@@ -90,7 +106,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                 listState.isScrollInProgress,
             )
         }.collect { (_, _, isScrolling) ->
-            if (isScrolling) autoFollow = listState.isNearBottom(bottomAnchorIndex)
+            if (isScrolling && !searchActive) autoFollow = listState.isNearBottom(bottomAnchorIndex)
         }
     }
     LaunchedEffect(listState, messages.size) {
@@ -106,12 +122,24 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
         }
     }
     LaunchedEffect(messages.lastOrNull()?.id, messages.lastOrNull()?.content, autoFollow) {
-        if (messages.isNotEmpty() && autoFollow) listState.scrollToItem(bottomAnchorIndex)
+        if (messages.isNotEmpty() && autoFollow && !searchActive) listState.scrollToItem(bottomAnchorIndex)
     }
     LaunchedEffect(imeBottom) {
-        if (imeBottom > 0 && messages.isNotEmpty()) {
+        if (imeBottom > 0 && messages.isNotEmpty() && !searchActive) {
             yield()
             listState.scrollToItem(bottomAnchorIndex)
+        }
+    }
+    LaunchedEffect(searchState.revision, searchActive) {
+        if (!searchActive) return@LaunchedEffect
+        val id = searchState.currentHit?.messageId ?: return@LaunchedEffect
+        val index = messages.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            autoFollow = false
+            listState.animateScrollToItem(index)
+            highlightedMessageId = id
+            delay(1_200)
+            if (highlightedMessageId == id) highlightedMessageId = null
         }
     }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).onSizeChanged { size ->
@@ -135,7 +163,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
             topBar = {
                 Column {
                     Row(
-                        Modifier.fillMaxWidth().statusBarsPadding().height(68.dp).padding(horizontal = 6.dp),
+                        Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 68.dp).padding(horizontal = 6.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
@@ -185,6 +213,20 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                                 )
                             }
                         }
+                        if (CHAT_SEARCH_ENABLED) {
+                            Box(
+                                Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        searchExpanded = true
+                                        autoFollow = false
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Default.Search, language.pick("搜尋聊天室", "搜索聊天室"), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
                         Box(
                             Modifier
                                 .padding(end = 6.dp)
@@ -195,6 +237,56 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(Icons.Default.Info, language.pick("對話資訊", "对话信息"), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    AnimatedVisibility(searchActive) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OutlinedTextField(
+                                value = searchState.query,
+                                onValueChange = viewModel::setSearchQuery,
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text(language.pick("搜尋目前聊天室", "搜索当前聊天室")) },
+                                leadingIcon = { Icon(Icons.Default.Search, null) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(18.dp),
+                            )
+                            Box {
+                                TextButton(
+                                    onClick = { searchResultsMenu = searchState.hits.isNotEmpty() },
+                                    enabled = searchState.hits.isNotEmpty(),
+                                ) {
+                                    Text(if (searchState.hits.isEmpty()) "0 / 0" else "${searchState.currentIndex + 1} / ${searchState.hits.size}")
+                                }
+                                DropdownMenu(searchActive && searchResultsMenu, { searchResultsMenu = false }) {
+                                    LazyColumn(
+                                        Modifier.width(300.dp).height(minOf(searchState.hits.size * 72, 360).dp),
+                                    ) {
+                                        itemsIndexed(searchState.hits, key = { _, hit -> hit.messageId }) { index, hit ->
+                                            DropdownMenuItem(
+                                                text = { Text(hit.snippet, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                                                onClick = {
+                                                    viewModel.selectSearchResult(index)
+                                                    searchResultsMenu = false
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            IconButton(onClick = viewModel::previousSearchResult, enabled = searchState.hits.isNotEmpty()) {
+                                Icon(Icons.Default.KeyboardArrowUp, language.pick("上一筆", "上一条"))
+                            }
+                            IconButton(onClick = viewModel::nextSearchResult, enabled = searchState.hits.isNotEmpty()) {
+                                Icon(Icons.Default.KeyboardArrowDown, language.pick("下一筆", "下一条"))
+                            }
+                            IconButton(onClick = {
+                                searchExpanded = false
+                                searchResultsMenu = false
+                                viewModel.closeSearch()
+                            }) { Icon(Icons.Default.Close, language.pick("關閉搜尋", "关闭搜索")) }
                         }
                     }
                     Hairline()
@@ -213,23 +305,30 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                     items(messages, key = { it.id }) { message ->
                         MessageBubble(
                             message = message,
-                            worldHits = contextMap[message.id]?.first.orEmpty(),
-                            reasoningContent = contextMap[message.id]?.second.orEmpty(),
-                            generationContext = generationMap[message.id],
+                            versions = versionMap[message.id].orEmpty(),
+                            generationContext = contextMap[message.currentVersionId],
                             language = language,
                             bubbleOpacity = conversation?.messageBubbleOpacity ?: 1f,
                             characterName = characterName,
                             characterSeed = conversation?.characterId ?: "ai",
                             isGenerating = message.id == activeAssistantMessageId,
+                            canContinue = message.role == "assistant" && !message.excluded && message.content.isNotBlank() && message.id == messages.lastOrNull()?.id,
+                            highlighted = searchActive && message.id == highlightedMessageId,
+                            historyActionsEnabled = !streaming && !summarizing,
                             actionsVisible = actionMessageId == message.id,
                             onToggleActions = {
                                 actionMessageId = if (actionMessageId == message.id) null else message.id
                             },
-                            onEdit = viewModel::editMessage,
-                            onResend = {
+                            onEdit = viewModel::requestEditMessage,
+                            onSelectVersion = viewModel::requestSelectVersion,
+                            onGenerateAlternative = {
                                 actionMessageId = null
-                                viewModel.resendFromMessage(it)
+                                viewModel.requestGenerateAlternative(it)
                             },
+                            onAnswerFrom = viewModel::requestAnswerFrom,
+                            onContinue = viewModel::requestContinue,
+                            onDelete = viewModel::requestDeleteMessage,
+                            onToggleExcluded = viewModel::toggleMessageExcluded,
                         )
                     }
                     item(key = "chat-bottom-anchor") {
@@ -306,6 +405,39 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
             },
         )
     }
+    pendingMutation?.let { pending ->
+        val deleting = pending.kind == MessageMutationKind.DELETE
+        AlertDialog(
+            onDismissRequest = viewModel::dismissPendingMutation,
+            shape = RoundedCornerShape(22.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = {
+                Text(
+                    if (deleting) language.pick("刪除這則訊息？", "删除这条消息？")
+                    else language.pick("刪除後續訊息？", "删除后续消息？"),
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Text(
+                    if (deleting) language.pick(
+                        "將刪除這則訊息及其所有版本與生成資料，其他訊息會保留。",
+                        "将删除这条消息及其所有版本与生成数据，其他消息会保留。",
+                    ) else language.pick(
+                        "此操作將刪除這則訊息之後的 ${pending.followingCount} 則訊息，包含其其他版本。是否繼續？",
+                        "此操作将删除这条消息之后的 ${pending.followingCount} 条消息，包含其其他版本。是否继续？",
+                    ),
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = viewModel::confirmPendingMutation,
+                    colors = if (deleting) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors(),
+                ) { Text(if (deleting) language.pick("刪除", "删除") else language.pick("繼續", "继续")) }
+            },
+            dismissButton = { TextButton(onClick = viewModel::dismissPendingMutation) { Text(language.pick("取消", "取消")) } },
+        )
+    }
 }
 
 
@@ -361,30 +493,44 @@ private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage) {
 }
 
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(
+internal fun MessageBubble(
     message: MessageEntity,
-    worldHits: List<String>,
-    reasoningContent: String,
+    versions: List<MessageVersionEntity>,
     generationContext: GenerationContextEntity?,
     language: AppLanguage,
     bubbleOpacity: Float,
     characterName: String?,
     characterSeed: String,
     isGenerating: Boolean,
+    canContinue: Boolean,
+    highlighted: Boolean,
+    historyActionsEnabled: Boolean,
     actionsVisible: Boolean,
     onToggleActions: () -> Unit,
     onEdit: (String, String) -> Unit,
-    onResend: (String) -> Unit,
+    onSelectVersion: (String, String) -> Unit,
+    onGenerateAlternative: (String) -> Unit,
+    onAnswerFrom: (String) -> Unit,
+    onContinue: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onToggleExcluded: (String) -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
     var reasoningExpanded by remember(message.id) { mutableStateOf(false) }
     var worldInfoExpanded by remember(message.id) { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var editText by remember(message.id, message.content) { mutableStateOf(message.content) }
+    var moreExpanded by remember(message.conversationId, message.id) { mutableStateOf(false) }
+    LaunchedEffect(actionsVisible) {
+        if (!actionsVisible) moreExpanded = false
+    }
     val user = message.role == "user"
-    val reasoning = if (user) "" else reasoningContent.trim()
+    val reasoning = if (user) "" else generationContext?.reasoningContent.orEmpty().trim()
+    val worldHits = remember(generationContext) { jsonStrings(generationContext?.activatedWorldEntriesJson.orEmpty()) }
+    val currentVersionIndex = versions.indexOfFirst { it.id == message.currentVersionId }.coerceAtLeast(0)
+    val currentVersion = versions.getOrNull(currentVersionIndex)
     val canShowActions = message.content.isNotBlank() || reasoning.isNotBlank()
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     LaunchedEffect(actionsVisible, canShowActions) {
@@ -411,6 +557,15 @@ private fun MessageBubble(
                           else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
         val bubbleContent: @Composable () -> Unit = {
             Column(Modifier.padding(14.dp)) {
+                if (message.excluded) {
+                    Text(
+                        language.pick("已排除", "已排除"),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (user) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
                 if (reasoning.isNotBlank()) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -483,7 +638,10 @@ private fun MessageBubble(
             Surface(
                 Modifier
                     .fillMaxWidth(0.86f)
-                    .clip(bubbleShape)
+                    .then(if (highlighted) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, bubbleShape) else Modifier)
+                    // 不要在點擊區外重複套用非等半徑圓角裁切：Compose 會把這種形狀轉成路徑，
+                    // 泡泡高於約 8K 像素時，路徑命中測試會錯誤拒絕正文內的觸點，導致點擊失效。
+                    // 圓角與尾角由底下 Surface(shape = bubbleShape) 自己裁切，外觀不變。
                     .clickable(enabled = canShowActions, onClick = onToggleActions),
                 shape = bubbleShape,
                 color = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f)),
@@ -507,7 +665,8 @@ private fun MessageBubble(
                     Surface(
                         Modifier
                             .fillMaxWidth()
-                            .clip(bubbleShape)
+                            .then(if (highlighted) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, bubbleShape) else Modifier)
+                            // 同上：外層裁切會擋掉超高泡泡的命中測試，圓角交給 Surface 自己處理。
                             .clickable(enabled = canShowActions, onClick = onToggleActions),
                         shape = bubbleShape,
                         color = bubbleColor.copy(alpha = bubbleOpacity.coerceIn(0.35f, 1f)),
@@ -519,22 +678,97 @@ private fun MessageBubble(
             }
         }
         if (canShowActions && actionsVisible) {
-            val metrics = remember(message.content, generationContext, user, language) {
-                messageMetricsLabels(message.content, generationContext, user, language)
-            }
-            FlowRow(
-                modifier = (if (user) Modifier.fillMaxWidth(.86f) else Modifier.fillMaxWidth().padding(start = 50.dp)).padding(top = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+            Column(
+                modifier = (if (user) Modifier.fillMaxWidth(.86f) else Modifier.fillMaxWidth().padding(start = 50.dp))
+                    .padding(top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Row {
-                    IconButton(onClick = { clipboard.setText(AnnotatedString(message.content.ifBlank { reasoning })) }) { Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
-                    IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, language.pick("編輯", "编辑"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
-                    IconButton(onClick = { onResend(message.id) }) { Icon(Icons.Default.Refresh, language.pick("重新發送", "重新发送"), Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { clipboard.setText(AnnotatedString(message.content)) },
+                        enabled = message.content.isNotBlank(),
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(Icons.Default.ContentCopy, language.pick("複製", "复制"), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                    IconButton(
+                        enabled = historyActionsEnabled && message.content.isNotBlank(),
+                        onClick = { editing = true },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(Icons.Default.Edit, language.pick("編輯", "编辑"), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                    IconButton(
+                        enabled = historyActionsEnabled && !message.excluded && message.content.isNotBlank(),
+                        onClick = {
+                            if (user) onAnswerFrom(message.id) else onGenerateAlternative(message.id)
+                        },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(Icons.Default.Refresh,
+                            if (user) language.pick("重新發送", "重新发送") else language.pick("生成另一版", "生成另一版"),
+                            Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                    Box {
+                        IconButton(
+                            enabled = historyActionsEnabled,
+                            onClick = { moreExpanded = true },
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(Icons.Default.MoreHoriz, language.pick("更多功能", "更多功能"), Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurface)
+                        }
+                        DropdownMenu(
+                            expanded = moreExpanded && actionsVisible && historyActionsEnabled,
+                            onDismissRequest = { moreExpanded = false },
+                        ) {
+                            if (!user && canContinue) {
+                                DropdownMenuItem(
+                                    text = { Text(language.pick("續寫", "续写")) },
+                                    onClick = { moreExpanded = false; onContinue(message.id) },
+                                    enabled = !message.excluded,
+                                    leadingIcon = { Icon(Icons.Default.Add, null) },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text(if (message.excluded) language.pick("恢復提供給 AI", "恢复提供给 AI") else language.pick("不提供給 AI", "不提供给 AI")) },
+                                onClick = { moreExpanded = false; onToggleExcluded(message.id) },
+                                leadingIcon = { Icon(if (message.excluded) Icons.Default.Visibility else Icons.Default.VisibilityOff, null) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(language.pick("刪除訊息", "删除消息"), color = MaterialTheme.colorScheme.error) },
+                                onClick = { moreExpanded = false; onDelete(message.id) },
+                                leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                            )
+                        }
+                    }
                 }
-                Column(Modifier.heightIn(min = 48.dp), verticalArrangement = Arrangement.Center) {
-                    Text(metrics.count, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(metrics.speed, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (versions.size > 1) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            enabled = historyActionsEnabled && currentVersionIndex > 0,
+                            onClick = { versions.getOrNull(currentVersionIndex - 1)?.let { onSelectVersion(message.id, it.id) } },
+                        ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, language.pick("上一版本", "上一版本")) }
+                        Text("${currentVersionIndex + 1} / ${versions.size}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        IconButton(
+                            enabled = historyActionsEnabled && currentVersionIndex < versions.lastIndex,
+                            onClick = { versions.getOrNull(currentVersionIndex + 1)?.let { onSelectVersion(message.id, it.id) } },
+                        ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, language.pick("下一版本", "下一版本")) }
+                    }
+                }
+                if (!user) {
+                    versionBadgeLabel(currentVersion, language)?.let {
+                        Text(it, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                    }
+                    val metrics = remember(message.content, generationContext, language) {
+                        messageMetricsLabels(message.content, generationContext, false, language)
+                    }
+                    Text(
+                        metrics.singleLine,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }
@@ -569,7 +803,8 @@ private fun MessageBubble(
                         ),
                     )
                     Text(
-                        language.pick("編輯後會以此內容重新接續對話。", "编辑后会以此内容重新接续对话。"),
+                        if (user) language.pick("儲存後可按 ⟳ 重新發送，不會自動要求 AI 回答。", "保存后可按 ⟳ 重新发送，不会自动要求 AI 回答。")
+                        else language.pick("儲存為新版本，不會自動要求 AI 回答。", "保存为新版本，不会自动要求 AI 回答。"),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -587,4 +822,12 @@ private fun MessageBubble(
             dismissButton = { TextButton(onClick = { editing = false }) { Text(language.pick("取消", "取消"), color = MaterialTheme.colorScheme.onSurfaceVariant) } },
         )
     }
+}
+
+private fun versionBadgeLabel(version: MessageVersionEntity?, language: AppLanguage): String? = when {
+    version?.status == MessageVersionStatus.PARTIAL -> language.pick("部分完成", "部分完成")
+    version?.status == MessageVersionStatus.INTERRUPTED -> language.pick("生成中斷", "生成中断")
+    version?.source == MessageVersionSource.CONTINUATION -> language.pick("本次續寫", "本次续写")
+    version?.source == MessageVersionSource.AI_EDIT -> language.pick("人工編輯", "人工编辑")
+    else -> null
 }

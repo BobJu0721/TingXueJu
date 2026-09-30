@@ -126,14 +126,14 @@ class ProfilesViewModel(private val appContainer: AppContainer) : ViewModel() {
         }
         _pendingImport.value = null
         _isImporting.value = true
-            runCatching {
-                _editingProfile.value = organizeProfile(pending.document.text, type, current, apiKey)
-                _navigationEvents.emit(ProfilesNavigation.ProfileEdit)
-            }.onFailure {
-                _error.value = mapError(it, current.language.pick("AI 整理失敗", "AI 整理失败"), current.language)
-            }
-            _isImporting.value = false
+        runCatching {
+            _editingProfile.value = organizeProfile(pending.document.text, type, current, apiKey)
+            _navigationEvents.emit(ProfilesNavigation.ProfileEdit)
+        }.onFailure {
+            _error.value = mapError(it, current.language.pick("AI 整理失敗", "AI 整理失败"), current.language)
         }
+        _isImporting.value = false
+    }
     }
     private fun navigate(event: ProfilesNavigation) {
         viewModelScope.launch { _navigationEvents.emit(event) }

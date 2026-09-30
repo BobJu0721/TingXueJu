@@ -170,8 +170,9 @@ internal fun manualSummaryModeLabel(mode: ManualSummaryMode, language: AppLangua
 
 @Composable
 internal fun ChatBackground(path: String, darkTheme: Boolean, targetWidthPx: Int, targetHeightPx: Int) {
-    val bitmap by produceState<Bitmap?>(null, path, targetWidthPx, targetHeightPx) {
-        value = if (path.isBlank() || targetWidthPx <= 0 || targetHeightPx <= 0) {
+    var bitmap by remember(path, targetWidthPx, targetHeightPx) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(path, targetWidthPx, targetHeightPx) {
+        bitmap = if (path.isBlank() || targetWidthPx <= 0 || targetHeightPx <= 0) {
             null
         } else {
             withContext(Dispatchers.IO) { decodeChatBackground(path, targetWidthPx, targetHeightPx) }
@@ -252,8 +253,11 @@ internal fun ErrorDialog(error: UiError, language: AppLanguage, onDismiss: () ->
                             onClick = onSettings,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                             shape = RoundedCornerShape(14.dp),
-                        ) { Text(if (error.kind == ErrorKind.MODEL_SELECTION) language.pick("調整思考模式", "调整思考模式")
-                            else language.pick("前往設定", "前往设置"), fontWeight = FontWeight.Bold) }
+                        ) { Text(when (error.kind) {
+                            ErrorKind.MODEL_SELECTION -> language.pick("調整思考模式", "调整思考模式")
+                            ErrorKind.CHAT_OPTIONS -> language.pick("調整回覆設定", "调整回复设置")
+                            else -> language.pick("前往設定", "前往设置")
+                        }, fontWeight = FontWeight.Bold) }
                         TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text(language.pick("關閉", "关闭"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }

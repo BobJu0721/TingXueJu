@@ -7,6 +7,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConversationSummaryPlanTest {
+    @Test fun excludedMessagesDoNotCountTowardSummaryOrRecentRetention() {
+        val messages = listOf(
+            message(1, "one"),
+            message(2, "excluded").copy(excluded = true),
+            message(3, "three"),
+        )
+        val plan = conversationSummaryPlan(conversation(), messages, 1, ManualSummaryMode.REBUILD_ALL)
+        assertEquals(listOf("one"), plan.messagesToSummarize.map { it.content })
+    }
     @Test
     fun unSummarizedModeKeepsExistingSummaryAndSkipsCoveredMessages() {
         val conversation = conversation(summary = "舊摘要", summaryThroughAt = 3)

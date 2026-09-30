@@ -39,7 +39,7 @@ class GenerationMetricsTest {
         assertNull(GenerationMeter(10).snapshot("hi", "", 0).tokensPerSecond)
         val labels = messageMetricsLabels("你好", null, false, AppLanguage.TRADITIONAL_CHINESE)
         assertEquals("約 2 token", labels.count)
-        assertEquals("— token/s", labels.speed)
+        assertNull(labels.speed)
     }
 
     @Test fun persistedGenerationStatsRestoreAndUserMessagesIgnoreGenerationTime() {
@@ -48,9 +48,10 @@ class GenerationMetricsTest {
         val labels = messageMetricsLabels("answer", context.copy(), false, AppLanguage.TRADITIONAL_CHINESE)
         assertEquals("100 token", labels.count)
         assertEquals("平均 50.0 token/s", labels.speed)
+        assertEquals("100 token · 平均 50.0 token/s", labels.singleLine)
         val user = messageMetricsLabels("你好", context, true, AppLanguage.TRADITIONAL_CHINESE)
         assertEquals("約 2 token", user.count)
-        assertEquals("— token/s", user.speed)
+        assertNull(user.speed)
     }
 
     @Test fun partialGenerationsAndEditedMessagesUseEstimatedCounts() {
@@ -62,6 +63,7 @@ class GenerationMetricsTest {
         val edited = partial.copy(outputTokenCount = null, generationElapsedMillis = null, reasoningContent = "")
         val after = messageMetricsLabels("修改了", edited, false, AppLanguage.TRADITIONAL_CHINESE)
         assertEquals("約 3 token", after.count)
-        assertEquals("— token/s", after.speed)
+        assertNull(after.speed)
+        assertEquals(after.count, after.singleLine)
     }
 }

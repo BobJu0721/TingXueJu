@@ -14,8 +14,9 @@ android {
         applicationId = "com.aichat.app"
         minSdk = 31
         targetSdk = 35
-        versionCode = 14
-        versionName = "1.13"
+        versionCode = 15
+        versionName = "1.14"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -69,5 +70,15 @@ dependencies {
     baselineProfile(project(":baselineprofile"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test:core-ktx:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.sqlite:sqlite-framework:2.4.0")
+    // Versions come from the Compose BOM above, so the test artifacts always match the UI under test.
+    // The platform has to be repeated here: androidTestImplementation does not inherit the
+    // constraint from implementation, and ui-test-junit4 is declared without a version.
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

@@ -7,6 +7,10 @@ import com.aichat.app.data.ProfileEntity
 import com.aichat.app.data.WorldEntryEntity
 import com.aichat.app.data.WorldSetEntity
 import com.aichat.app.network.ApiChatMessage
+import com.aichat.app.domain.ChatGenerationKind
+import com.aichat.app.domain.ChatGenerationRequest
+import com.aichat.app.domain.EffectiveHistoryResolver
+import com.aichat.app.domain.instruction
 import org.json.JSONArray
 
 data class PromptResult(
@@ -55,16 +59,26 @@ fun composePrompt(
     worldSets: List<WorldSetEntity>,
     worldEntries: List<WorldEntryEntity>,
     language: AppLanguage = AppLanguage.TRADITIONAL_CHINESE,
+    request: ChatGenerationRequest? = null,
 ): PromptResult {
-    val visibleHistory = history.filter {
-        it.content.isNotBlank() &&
-            it.createdAt >= conversation.contextStartAt &&
-            it.createdAt > conversation.summaryThroughAt
-    }
-    val activatedEntries = activateWorldEntries(worldEntries, worldSets, history)
+    val target = request?.targetMessageId?.let { id -> history.firstOrNull { it.id == id } }
+    val effective = EffectiveHistoryResolver.resolve(
+        conversation,
+        history,
+        request?.kind ?: ChatGenerationKind.NEW_REPLY,
+        target,
+    )
+    val activatedEntries = activateWorldEntries(worldEntries, worldSets, effective.worldHistory)
     val labels = language.promptLabels()
     val systemText = buildString {
         appendLine(labels.continueConversation)
+        conversation.replyLengthPreference.instruction(language)?.let(::appendLine)
+        if (request?.kind == ChatGenerationKind.CONTINUATION) {
+            appendLine(language.pick(
+                "接續上一則回答，只輸出新增內容，不重述既有文字。",
+                "接续上一则回答，只输出新增内容，不重述已有文字。",
+            ))
+        }
         appendProfile(labels.aiCharacter, character, labels)
         appendProfile(labels.persona, persona, labels)
         val overviews = worldSets.filter { it.overview.isNotBlank() }
@@ -84,7 +98,7 @@ fun composePrompt(
                 appendLine(entry.content)
             }
         }
-        if (conversation.summary.isNotBlank()) {
+        if (effective.includeSummary) {
             appendLine()
             appendLine("## ${labels.olderSummary}")
             appendLine(conversation.summary)
@@ -93,7 +107,7 @@ fun composePrompt(
     return PromptResult(
         messages = buildList {
             if (systemText.isNotBlank()) add(ApiChatMessage("system", systemText))
-            visibleHistory.forEach { add(ApiChatMessage(it.role, it.content)) }
+            effective.promptHistory.forEach { add(ApiChatMessage(it.role, it.content)) }
         },
         activatedEntries = activatedEntries,
     )

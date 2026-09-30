@@ -37,6 +37,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -59,6 +60,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aichat.app.*
 import com.aichat.app.data.AppLanguage
+import com.aichat.app.data.ReplyLengthPreference
+import com.aichat.app.data.TokenLimitField
 import kotlin.math.roundToInt
 
 @Composable
@@ -79,6 +82,13 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
     var summaryMode by remember(current.id) { mutableStateOf(ManualSummaryMode.UN_SUMMARIZED) }
     var keepRecentText by remember(current.id) { mutableStateOf("20") }
     var summaryModeMenu by remember { mutableStateOf(false) }
+    var replyPreference by remember(current.id) { mutableStateOf(current.replyLengthPreference) }
+    var maxTokensText by remember(current.id) { mutableStateOf(current.maxOutputTokens?.toString().orEmpty()) }
+    var tokenField by remember(current.id) { mutableStateOf(current.tokenLimitField) }
+    var preferenceMenu by remember { mutableStateOf(false) }
+    var tokenFieldMenu by remember { mutableStateOf(false) }
+    val parsedMaxTokens = maxTokensText.trim().toIntOrNull()?.takeIf { it > 0 }
+    val tokenLimitValid = maxTokensText.isBlank() || parsedMaxTokens != null
     val keepRecentCount = keepRecentText.toIntOrNull()?.coerceIn(1, 100)
     val summaryPlan = remember(current, messages, keepRecentCount, summaryMode) {
         keepRecentCount?.let { conversationSummaryPlan(current, messages, it, summaryMode) }
@@ -128,8 +138,11 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
                     .padding(horizontal = 22.dp, vertical = 12.dp)
             ) {
                 Button(
-                    onClick = onBack,
-                    Modifier.fillMaxWidth().heightIn(min = 54.dp),
+                    onClick = {
+                        viewModel.updateConversationGenerationOptions(replyPreference, parsedMaxTokens, tokenField, onBack)
+                    },
+                    enabled = tokenLimitValid,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) { Text(language.pick("儲存並返回", "保存并返回"), fontWeight = FontWeight.Bold, fontSize = 18.sp) }
             }
@@ -214,6 +227,62 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
                     subtitle = language.pick("$count 條目", "$count 条目"),
                     onClick = { viewModel.toggleConversationWorldSet(set.id) },
                 )
+            }
+            item { SectionHead(language.pick("回覆設定", "回复设置")) }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(language.pick("篇幅偏好", "篇幅偏好"), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box {
+                        OutlinedButton(
+                            onClick = { preferenceMenu = true },
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                        ) { Text(replyLengthLabel(replyPreference, language), fontWeight = FontWeight.SemiBold) }
+                        DropdownMenu(preferenceMenu, { preferenceMenu = false }) {
+                            ReplyLengthPreference.entries.forEach { option ->
+                                DropdownMenuItem(
+                                    { Text(replyLengthLabel(option, language)) },
+                                    { replyPreference = option; preferenceMenu = false },
+                                )
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = maxTokensText,
+                        onValueChange = { maxTokensText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(language.pick("最大輸出 Token（選填）", "最大输出 Token（选填）")) },
+                        placeholder = { Text(language.pick("留白表示不限制", "留空表示不限制")) },
+                        supportingText = {
+                            if (!tokenLimitValid) Text(language.pick("請輸入正整數。", "请输入正整数。"), color = MaterialTheme.colorScheme.error)
+                        },
+                        isError = !tokenLimitValid,
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                    Text(language.pick("Token 參數欄位", "Token 参数字段"), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box {
+                        OutlinedButton(
+                            onClick = { tokenFieldMenu = true },
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                        ) { Text(tokenFieldLabel(tokenField, language), fontWeight = FontWeight.SemiBold) }
+                        DropdownMenu(tokenFieldMenu, { tokenFieldMenu = false }) {
+                            TokenLimitField.entries.forEach { option ->
+                                DropdownMenuItem(
+                                    { Text(tokenFieldLabel(option, language)) },
+                                    { tokenField = option; tokenFieldMenu = false },
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        language.pick("篇幅是行為偏好，不保證固定字數；每次請求只會送出一種 Token 上限欄位。", "篇幅是行为偏好，不保证固定字数；每次请求只会发送一种 Token 上限字段。"),
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             item { SectionHead(language.pick("手動壓縮", "手动压缩")) }
             item {
@@ -331,6 +400,19 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
             }
         }
     }
+}
+
+private fun replyLengthLabel(value: ReplyLengthPreference, language: AppLanguage): String = when (value) {
+    ReplyLengthPreference.DEFAULT -> language.pick("預設", "默认")
+    ReplyLengthPreference.SHORT -> language.pick("簡短", "简短")
+    ReplyLengthPreference.MEDIUM -> language.pick("適中", "适中")
+    ReplyLengthPreference.DETAILED -> language.pick("詳細", "详细")
+}
+
+private fun tokenFieldLabel(value: TokenLimitField, language: AppLanguage): String = when (value) {
+    TokenLimitField.AUTO -> language.pick("自動", "自动")
+    TokenLimitField.MAX_TOKENS -> "max_tokens"
+    TokenLimitField.MAX_COMPLETION_TOKENS -> "max_completion_tokens"
 }
 
 @Composable

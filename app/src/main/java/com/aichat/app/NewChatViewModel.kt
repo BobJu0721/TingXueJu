@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.ConversationEntity
 import com.aichat.app.data.ConversationWorldSetEntity
-import com.aichat.app.data.MessageEntity
 import com.aichat.app.data.ProfileEntity
 import com.aichat.app.data.ProfileType
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -85,9 +84,7 @@ class NewChatViewModel(appContainer: AppContainer) : ViewModel() {
             conversationRepository.upsertConversation(conversation)
             setConversationWorldSets(conversation.id, _newChatWorldSetIds.value)
             if (_newChatGreeting.value.isNotBlank()) {
-                conversationRepository.upsertMessage(
-                    MessageEntity(UUID.randomUUID().toString(), conversation.id, "assistant", _newChatGreeting.value, now + 1),
-                )
+                conversationRepository.createInitialMessage(conversation.id, "assistant", _newChatGreeting.value, now + 1)
             }
             _navigationEvents.emit(NewChatNavigation.Chat(conversation.id))
         }

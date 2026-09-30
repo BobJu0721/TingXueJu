@@ -6,7 +6,9 @@ import com.aichat.app.domain.estimateTokens
 import com.aichat.app.pick
 import java.util.Locale
 
-internal data class MessageMetricsLabels(val count: String, val speed: String)
+internal data class MessageMetricsLabels(val count: String, val speed: String?) {
+    val singleLine: String get() = if (speed == null) count else "$count · $speed"
+}
 
 internal fun messageMetricsLabels(
     content: String,
@@ -23,6 +25,6 @@ internal fun messageMetricsLabels(
     val speed = elapsed?.let { String.format(Locale.ROOT, "%.1f", count * 1000.0 / it) }
     return MessageMetricsLabels(
         count = "$prefix$count token",
-        speed = if (speed == null) "— token/s" else language.pick("平均 ", "平均 ") + "$prefix$speed token/s",
+        speed = speed?.let { language.pick("平均 ", "平均 ") + "$prefix$it token/s" },
     )
 }

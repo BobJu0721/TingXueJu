@@ -204,16 +204,16 @@ class WorldSetsViewModel(private val appContainer: AppContainer) : ViewModel() {
         }
         _pendingImport.value = null
         _isImporting.value = true
-            runCatching {
-                val draft = organizeWorldSet(pending.document.text, current, apiKey)
-                val worldSet = saveImportedWorldSet(draft, current.language.pick("匯入的世界設定", "导入的世界设定"))
-                _editingWorldSet.value = worldSet
-                _navigationEvents.emit(WorldSetsNavigation.WorldSetEdit)
-            }.onFailure {
-                _error.value = mapError(it, current.language.pick("AI 整理失敗", "AI 整理失败"), current.language)
-            }
-            _isImporting.value = false
+        runCatching {
+            val draft = organizeWorldSet(pending.document.text, current, apiKey)
+            val worldSet = saveImportedWorldSet(draft, current.language.pick("匯入的世界設定", "导入的世界设定"))
+            _editingWorldSet.value = worldSet
+            _navigationEvents.emit(WorldSetsNavigation.WorldSetEdit)
+        }.onFailure {
+            _error.value = mapError(it, current.language.pick("AI 整理失敗", "AI 整理失败"), current.language)
         }
+        _isImporting.value = false
+    }
     }
 
     private fun navigate(event: WorldSetsNavigation) {

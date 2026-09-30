@@ -2,9 +2,14 @@ package com.aichat.app.network
 
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.ReasoningMode
+import com.aichat.app.data.TokenLimitField
+import com.aichat.app.domain.ChatGenerationOptions
+import com.aichat.app.domain.StreamFinishInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -25,6 +30,7 @@ data class ApiChatMessage(
 internal data class StreamDelta(
     val content: String = "",
     val reasoningContent: String = "",
+    val finishReason: String? = null,
 )
 
 class AiApiClient(
@@ -35,10 +41,11 @@ class AiApiClient(
 ) {
 
     @Volatile
-    private var activeCall: Call? = null
+    private var activeStreamCall: Call? = null
+    private val requestMutex = Mutex()
 
     suspend fun listModels(settings: AppSettings, apiKey: String): List<String> =
-        withContext(Dispatchers.IO) {
+        requestMutex.withLock { withContext(Dispatchers.IO) {
             val request = requestBuilder(settings, apiKey, settings.resolvedModelsUrl).get().build()
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
@@ -50,23 +57,25 @@ class AiApiClient(
                     }
                 }.sorted()
             }
-        }
+        } }
 
     suspend fun streamChat(
         settings: AppSettings,
         apiKey: String,
         messages: List<ApiChatMessage>,
         reasoningMode: ReasoningMode,
+        options: ChatGenerationOptions? = null,
         onToken: suspend (String) -> Unit,
         onReasoningToken: suspend (String) -> Unit = {},
         onUsage: suspend (Long) -> Unit = {},
-    ) = withContext(Dispatchers.IO) {
-        val payload = chatPayload(settings, messages, stream = true, reasoningMode = reasoningMode)
+        onFinish: suspend (StreamFinishInfo) -> Unit = {},
+    ) = requestMutex.withLock { withContext(Dispatchers.IO) {
+        val payload = chatPayload(settings, messages, stream = true, reasoningMode = reasoningMode, options = options)
         val request = requestBuilder(settings, apiKey, "${settings.resolvedBaseUrl}/chat/completions")
             .post(payload.toString().toRequestBody(JSON))
             .build()
         val call = client.newCall(request)
-        activeCall = call
+        activeStreamCall = call
         try {
             call.execute().use { response ->
                 if (!response.isSuccessful) {
@@ -93,6 +102,7 @@ class AiApiClient(
                     val data = line.removePrefix("data:").trim()
                     if (data == "[DONE]") break
                     val delta = parseStreamDelta(data, settings, response.requestId())
+                    delta.finishReason?.let { onFinish(StreamFinishInfo(it)) }
                     parseCompletionTokens(data)?.let { onUsage(it) }
                     if (delta.reasoningContent.isNotEmpty() && !rawReasoningSeen) {
                         structuredReasoningSeen = true
@@ -105,42 +115,36 @@ class AiApiClient(
                 emitText(thinkTags.finish())
             }
         } finally {
-            activeCall = null
+            activeStreamCall = null
         }
-    }
+    } }
 
     suspend fun completeChat(
         settings: AppSettings,
         apiKey: String,
         messages: List<ApiChatMessage>,
-    ): String = withContext(Dispatchers.IO) {
+    ): String = requestMutex.withLock { withContext(Dispatchers.IO) {
         val payload = chatPayload(settings, messages, stream = false)
         val request = requestBuilder(settings, apiKey, "${settings.resolvedBaseUrl}/chat/completions")
             .post(payload.toString().toRequestBody(JSON))
             .build()
         val call = client.newCall(request)
-        activeCall = call
-        try {
-            call.execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) throw response.apiError(settings, body)
-                JSONObject(body)
-                    .optJSONArray("choices")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("message")
-                    ?.optString("content")
-                    .orEmpty()
-                    .withoutLeadingThinkBlock()
-                    .ifBlank { throw IOException("API 沒有回傳文字內容。") }
-            }
-        } finally {
-            activeCall = null
+        call.execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw response.apiError(settings, body)
+            JSONObject(body)
+                .optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                .orEmpty()
+                .withoutLeadingThinkBlock()
+                .ifBlank { throw IOException("API 沒有回傳文字內容。") }
         }
-    }
+    } }
 
     fun cancelActive() {
-        activeCall?.cancel()
-        activeCall = null
+        activeStreamCall?.cancel()
     }
 
     private fun requestBuilder(settings: AppSettings, apiKey: String, url: String): Request.Builder =
@@ -159,6 +163,7 @@ class AiApiClient(
         messages: List<ApiChatMessage>,
         stream: Boolean,
         reasoningMode: ReasoningMode? = null,
+        options: ChatGenerationOptions? = null,
     ) = JSONObject()
         .put("model", settings.model)
         .put("stream", stream)
@@ -167,7 +172,19 @@ class AiApiClient(
                 put(JSONObject().put("role", message.role).put("content", message.content))
             }
         })
-        .apply { applyReasoning(settings, reasoningMode) }
+        .apply {
+            applyReasoning(settings, reasoningMode)
+            applyGenerationOptions(settings, options)
+        }
+
+    private fun JSONObject.applyGenerationOptions(settings: AppSettings, options: ChatGenerationOptions?) {
+        val limit = options?.maxOutputTokens ?: return
+        when (options.resolvedTokenField(settings.provider)) {
+            TokenLimitField.MAX_COMPLETION_TOKENS -> put("max_completion_tokens", limit)
+            TokenLimitField.MAX_TOKENS -> put("max_tokens", limit)
+            TokenLimitField.AUTO -> Unit
+        }
+    }
 
     private fun JSONObject.applyReasoning(settings: AppSettings, mode: ReasoningMode?) {
         if (mode == null) return
@@ -193,6 +210,7 @@ class AiApiClient(
             StreamDelta(
                 content = delta?.opt("content") as? String ?: "",
                 reasoningContent = delta.reasoningText().ifBlank { message.reasoningText() },
+                finishReason = choice?.optString("finish_reason")?.takeIf { it.isNotBlank() },
             )
         }.getOrDefault(StreamDelta())
     }

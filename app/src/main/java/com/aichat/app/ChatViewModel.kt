@@ -3,37 +3,46 @@ package com.aichat.app
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.aichat.app.data.AppSettings
-import com.aichat.app.data.ConversationEntity
-import com.aichat.app.data.ConversationWorldSetEntity
-import com.aichat.app.data.MessageEntity
-import com.aichat.app.data.ProfileType
-import com.aichat.app.data.ReasoningMode
+import com.aichat.app.data.*
+import com.aichat.app.domain.ChatGenerationKind
+import com.aichat.app.domain.ChatGenerationRequest
+import com.aichat.app.domain.EffectiveHistoryResolver
 import com.aichat.app.network.ApiException
 import com.aichat.app.network.validateReasoningMode
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import java.io.File
 import java.io.IOException
-import java.util.UUID
+import kotlin.math.max
 
-@OptIn(ExperimentalCoroutinesApi::class)
+data class ChatSearchHit(val messageId: String, val snippet: String)
+
+data class ChatSearchState(
+    val query: String = "",
+    val hits: List<ChatSearchHit> = emptyList(),
+    val currentIndex: Int = -1,
+    val revision: Long = 0,
+) {
+    val currentHit: ChatSearchHit? get() = hits.getOrNull(currentIndex)
+}
+
+enum class MessageMutationKind { SELECT_VERSION, EDIT, ALTERNATIVE, ANSWER_FROM, DELETE }
+
+data class PendingMessageMutation(
+    val kind: MessageMutationKind,
+    val messageId: String,
+    val followingCount: Int = 0,
+    val versionId: String? = null,
+    val content: String? = null,
+    val expectedRevision: Long? = null,
+)
+
+private sealed interface PendingGenerationStart {
+    data object Send : PendingGenerationStart
+    data class Existing(val request: ChatGenerationRequest) : PendingGenerationStart
+}
+
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     private val conversationRepository = appContainer.conversationRepository
     private val profileRepository = appContainer.profileRepository
@@ -56,11 +65,11 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     val messages = _selectedConversationId.flatMapLatest { id ->
         if (id == null) flowOf(emptyList()) else conversationRepository.observeMessages(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val generationContexts = messages
-        .map { messageList -> messageList.map { it.id } }
-        .distinctUntilChanged()
-        .flatMapLatest { messageIds ->
-        if (messageIds.isEmpty()) flowOf(emptyList()) else conversationRepository.observeGenerationContexts(messageIds)
+    val messageVersions = _selectedConversationId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList()) else conversationRepository.observeMessageVersions(id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val generationContexts = _selectedConversationId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList()) else conversationRepository.observeGenerationContexts(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val activeWorldSetIds = _selectedConversationId.flatMapLatest { id ->
         if (id == null) flowOf(emptyList()) else worldInfoRepository.observeConversationWorldSetIds(id)
@@ -82,16 +91,39 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     val selectedConversation = _selectedConversation.asStateFlow()
     private val _navigationEvents = MutableSharedFlow<Screen>()
     val navigationEvents = _navigationEvents.asSharedFlow()
+    private val _pendingMutation = MutableStateFlow<PendingMessageMutation?>(null)
+    val pendingMutation = _pendingMutation.asStateFlow()
+    private val _searchQuery = MutableStateFlow("")
+    private val _searchState = MutableStateFlow(ChatSearchState())
+    val searchState = _searchState.asStateFlow()
 
-    private var pendingAction: PendingAction? = null
-    private var pendingResendMessageId: String? = null
+    private var pendingGenerationStart: PendingGenerationStart? = null
     private var streamJob: Job? = null
+    private var lastFailedRequest: ChatGenerationRequest? = null
 
-    private fun text(traditional: String, simplified: String): String =
-        settings.value.language.pick(traditional, simplified)
+    init {
+        viewModelScope.launch { conversationRepository.recoverInterruptedDrafts() }
+        viewModelScope.launch {
+            combine(_searchQuery.debounce(250), messages) { query, current -> query to current }
+                .mapLatest { (query, current) ->
+                    withContext(Dispatchers.Default) { findChatMessages(query, current) }
+                }
+                .collect { (query, hits) ->
+                    if (query != _searchQuery.value) return@collect
+                    val old = _searchState.value
+                    val oldId = old.currentHit?.messageId
+                    val nextIndex = hits.indexOfFirst { it.messageId == oldId }.takeIf { it >= 0 }
+                        ?: if (hits.isEmpty()) -1 else 0
+                    _searchState.value = ChatSearchState(query, hits, nextIndex, old.revision + 1)
+                }
+        }
+    }
 
-    private fun showNotice(message: String) { /* Notices are intentionally disabled. */ }
+    private fun text(traditional: String, simplified: String): String = settings.value.language.pick(traditional, simplified)
     private fun navigate(screen: Screen) { viewModelScope.launch { _navigationEvents.emit(screen) } }
+    private suspend fun refreshConversation(id: String? = _selectedConversationId.value) {
+        _selectedConversation.value = id?.let { conversationRepository.getConversation(it) }
+    }
 
     fun setInput(value: String) { _input.value = value }
     fun clearError() { _error.value = null }
@@ -101,7 +133,8 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
 
     fun selectConversation(id: String) {
         _selectedConversationId.value = id
-        viewModelScope.launch { _selectedConversation.value = conversationRepository.getConversation(id) }
+        _searchQuery.value = ""
+        viewModelScope.launch { refreshConversation(id) }
         navigate(Screen.CHAT)
     }
 
@@ -112,20 +145,49 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         }
     }
 
-
     fun openChatInfo() {
-        val id = _selectedConversationId.value ?: return
-        viewModelScope.launch { _selectedConversation.value = conversationRepository.getConversation(id) }
+        viewModelScope.launch { refreshConversation() }
         navigate(Screen.CHAT_INFO)
     }
 
-    fun updateConversationPersona(id: String?) {
-        val conversation = _selectedConversation.value ?: return
+    fun renameConversation(title: String) = updateConversation { conversation ->
+        val clean = title.trim()
+        if (clean.isBlank() || clean == conversation.title) conversation
+        else conversation.copy(title = clean, updatedAt = System.currentTimeMillis())
+    }
+
+    fun updateConversationPersona(id: String?) = updateConversation { it.copy(personaId = id) }
+
+    fun updateConversationReasoningMode(mode: ReasoningMode) = updateConversation { it.copy(reasoningMode = mode) }
+
+    fun updateConversationGenerationOptions(
+        preference: ReplyLengthPreference,
+        maxOutputTokens: Int?,
+        field: TokenLimitField,
+        onSaved: () -> Unit = {},
+    ) {
+        require(maxOutputTokens == null || maxOutputTokens > 0)
+        val id = _selectedConversationId.value ?: return
         viewModelScope.launch {
-            val updated = conversation.copy(personaId = id)
-            conversationRepository.updateConversation(updated)
+            val fresh = conversationRepository.getConversation(id) ?: return@launch
+            val updated = fresh.copy(
+                replyLengthPreference = preference,
+                maxOutputTokens = maxOutputTokens,
+                tokenLimitField = field,
+            )
+            if (updated != fresh) conversationRepository.updateConversation(updated)
             _selectedConversation.value = updated
-            showNotice(text("Persona 已更新", "Persona 已更新"))
+            onSaved()
+        }
+    }
+
+    private fun updateConversation(transform: (ConversationEntity) -> ConversationEntity) {
+        val current = _selectedConversation.value ?: return
+        viewModelScope.launch {
+            val fresh = conversationRepository.getConversation(current.id) ?: return@launch
+            val updated = transform(fresh)
+            if (updated != fresh) conversationRepository.updateConversation(updated)
+            _selectedConversation.value = updated
         }
     }
 
@@ -134,28 +196,10 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         viewModelScope.launch {
             val selected = conversationRepository.getConversationWorldSetIds(conversationId).toMutableSet()
             if (!selected.add(id)) selected.remove(id)
-            setConversationWorldSets(conversationId, selected)
-        }
-    }
-
-    fun saveConversationSummary(summary: String) {
-        val conversation = _selectedConversation.value ?: return
-        viewModelScope.launch {
-            val updated = conversation.copy(summary = summary.trim())
-            conversationRepository.updateConversation(updated)
-            _selectedConversation.value = updated
-            showNotice(text("摘要已儲存", "摘要已保存"))
-        }
-    }
-
-    fun renameConversation(title: String) {
-        val conversation = _selectedConversation.value ?: return
-        val cleanTitle = title.trim()
-        if (cleanTitle.isBlank() || cleanTitle == conversation.title) return
-        viewModelScope.launch {
-            val updated = conversation.copy(title = cleanTitle, updatedAt = System.currentTimeMillis())
-            conversationRepository.updateConversation(updated)
-            _selectedConversation.value = updated
+            conversationRepository.replaceConversationWorldSets(
+                conversationId,
+                selected.map { ConversationWorldSetEntity(conversationId, it) },
+            )
         }
     }
 
@@ -164,123 +208,205 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         viewModelScope.launch {
             runCatching {
                 val targetPath = withContext(Dispatchers.IO) {
-                    val directory = File(appContainer.appContext.filesDir, "chat-backgrounds")
-                    directory.mkdirs()
-                    val target = File(directory, "${conversation.id}-${UUID.randomUUID()}.img")
+                    val directory = File(appContainer.appContext.filesDir, "chat-backgrounds").apply { mkdirs() }
+                    val target = File(directory, "${conversation.id}-${java.util.UUID.randomUUID()}.img")
                     appContainer.appContext.contentResolver.openInputStream(uri)?.use { input ->
-                        target.outputStream().use { output -> input.copyTo(output) }
+                        target.outputStream().use(input::copyTo)
                     } ?: throw IOException(text("無法讀取背景圖片。", "无法读取背景图片。"))
-                    conversation.backgroundImagePath.takeIf(String::isNotBlank)?.let {
-                        runCatching { File(it).delete() }
-                    }
+                    conversation.backgroundImagePath.takeIf(String::isNotBlank)?.let { runCatching { File(it).delete() } }
                     target.absolutePath
                 }
-                val updated = conversation.copy(backgroundImagePath = targetPath)
-                conversationRepository.updateConversation(updated)
-                _selectedConversation.value = updated
-            }
-                .onSuccess { showNotice(text("背景圖已更新", "背景图已更新")) }
-                .onFailure { _error.value = mapError(it, text("背景圖設定失敗", "背景图设置失败"), settings.value.language) }
+                conversation.copy(backgroundImagePath = targetPath)
+            }.onSuccess {
+                conversationRepository.updateConversation(it)
+                _selectedConversation.value = it
+            }.onFailure { _error.value = mapError(it, text("背景圖設定失敗", "背景图设置失败"), settings.value.language) }
         }
     }
 
     fun clearConversationBackground() {
         val conversation = _selectedConversation.value ?: return
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                conversation.backgroundImagePath.takeIf(String::isNotBlank)?.let {
-                    runCatching { File(it).delete() }
-                }
-            }
+            withContext(Dispatchers.IO) { conversation.backgroundImagePath.takeIf(String::isNotBlank)?.let { runCatching { File(it).delete() } } }
             val updated = conversation.copy(backgroundImagePath = "")
             conversationRepository.updateConversation(updated)
             _selectedConversation.value = updated
-            showNotice(text("背景圖已移除", "背景图已移除"))
         }
     }
 
-    fun updateMessageBubbleOpacity(opacity: Float) {
-        val conversation = _selectedConversation.value ?: return
-        val cleanOpacity = opacity.coerceIn(0.35f, 1f)
-        if (cleanOpacity == conversation.messageBubbleOpacity) return
+    fun updateMessageBubbleOpacity(opacity: Float) = updateConversation {
+        it.copy(messageBubbleOpacity = opacity.coerceIn(0.35f, 1f))
+    }
+
+    fun send() {
+        if (_input.value.isBlank() || historyMutationBlocked()) return
+        runWithUnsafeHttpConfirmation(PendingGenerationStart.Send)
+    }
+
+    fun requestEditMessage(messageId: String, content: String) {
+        val clean = content.trim()
+        if (clean.isBlank() || historyMutationBlocked()) return
         viewModelScope.launch {
-            val updated = conversation.copy(messageBubbleOpacity = cleanOpacity)
-            conversationRepository.updateConversation(updated)
-            _selectedConversation.value = updated
+            val message = conversationRepository.getMessage(messageId) ?: return@launch
+            if (message.content == clean) return@launch
+            prepareMutation(PendingMessageMutation(MessageMutationKind.EDIT, messageId, content = clean), message)
         }
     }
 
-    fun updateConversationReasoningMode(mode: ReasoningMode) {
-        val conversation = _selectedConversation.value ?: return
-        if (conversation.reasoningMode == mode) return
+    fun requestSelectVersion(messageId: String, versionId: String) {
+        if (historyMutationBlocked()) return
         viewModelScope.launch {
-            val updated = conversation.copy(reasoningMode = mode)
-            conversationRepository.updateConversation(updated)
-            _selectedConversation.value = updated
+            val message = conversationRepository.getMessage(messageId) ?: return@launch
+            if (message.currentVersionId == versionId) return@launch
+            prepareMutation(PendingMessageMutation(MessageMutationKind.SELECT_VERSION, messageId, versionId = versionId), message)
         }
     }
-    private suspend fun setConversationWorldSets(conversationId: String, ids: Set<String>) {
-        conversationRepository.replaceConversationWorldSets(
-            conversationId,
-            ids.map { ConversationWorldSetEntity(conversationId, it) },
+
+    fun requestGenerateAlternative(messageId: String) {
+        if (historyMutationBlocked()) return
+        viewModelScope.launch {
+            val message = conversationRepository.getMessage(messageId)?.takeIf { it.role == "assistant" && !it.excluded } ?: return@launch
+            prepareMutation(PendingMessageMutation(MessageMutationKind.ALTERNATIVE, messageId), message)
+        }
+    }
+
+    fun requestAnswerFrom(messageId: String) {
+        if (historyMutationBlocked()) return
+        viewModelScope.launch {
+            val message = conversationRepository.getMessage(messageId)?.takeIf { it.role == "user" && !it.excluded } ?: return@launch
+            prepareMutation(PendingMessageMutation(MessageMutationKind.ANSWER_FROM, messageId), message)
+        }
+    }
+
+    fun requestContinue(messageId: String) {
+        if (historyMutationBlocked()) return
+        viewModelScope.launch {
+            val eligibleLast = conversationRepository.getMessages(_selectedConversationId.value ?: return@launch).lastOrNull()
+            val message = eligibleLast?.takeIf { it.id == messageId && it.role == "assistant" } ?: return@launch
+            if (message.excluded || message.content.isBlank()) return@launch
+            beginExistingGeneration(ChatGenerationKind.CONTINUATION, message)
+        }
+    }
+
+    fun requestDeleteMessage(messageId: String) {
+        if (historyMutationBlocked()) return
+        _pendingMutation.value = PendingMessageMutation(MessageMutationKind.DELETE, messageId)
+    }
+
+    fun toggleMessageExcluded(messageId: String) {
+        if (historyMutationBlocked()) return
+        viewModelScope.launch {
+            val message = conversationRepository.getMessage(messageId) ?: return@launch
+            conversationRepository.setMessageExcluded(message, !message.excluded)
+            refreshConversation(message.conversationId)
+        }
+    }
+
+    private suspend fun prepareMutation(mutation: PendingMessageMutation, message: MessageEntity) {
+        val count = conversationRepository.countMessagesAfter(message)
+        val revision = conversationRepository.getConversation(message.conversationId)?.historyRevision ?: return
+        val prepared = mutation.copy(followingCount = count, expectedRevision = revision)
+        if (count > 0) _pendingMutation.value = prepared else executeMutation(prepared)
+    }
+
+    private fun historyMutationBlocked(): Boolean = _isStreaming.value || _isSummarizingConversation.value
+
+    fun confirmPendingMutation() {
+        val pending = _pendingMutation.value ?: return
+        _pendingMutation.value = null
+        viewModelScope.launch { executeMutation(pending) }
+    }
+
+    fun dismissPendingMutation() { _pendingMutation.value = null }
+
+    private suspend fun executeMutation(mutation: PendingMessageMutation) {
+        val message = conversationRepository.getMessage(mutation.messageId) ?: return
+        val conversation = conversationRepository.getConversation(message.conversationId) ?: return
+        if (mutation.expectedRevision != null && conversation.historyRevision != mutation.expectedRevision) {
+            _error.value = UiError(
+                text("對話已變更", "对话已变更"),
+                text("確認期間訊息歷史發生變更，請重新操作。", "确认期间消息历史发生变化，请重新操作。"),
+                text("原有訊息沒有被刪除。", "原有消息没有被删除。"),
+            )
+            return
+        }
+        when (mutation.kind) {
+            MessageMutationKind.SELECT_VERSION -> {
+                val version = mutation.versionId?.let { conversationRepository.getMessageVersion(it) } ?: return
+                if (!conversationRepository.selectVersion(message, version, conversation.historyRevision)) {
+                    reportChangedHistory()
+                    return
+                }
+                refreshConversation(message.conversationId)
+            }
+            MessageMutationKind.EDIT -> {
+                if (!conversationRepository.addEditedVersion(message, mutation.content.orEmpty(), conversation.historyRevision)) {
+                    reportChangedHistory()
+                    return
+                }
+                refreshConversation(message.conversationId)
+            }
+            MessageMutationKind.ALTERNATIVE -> beginExistingGeneration(ChatGenerationKind.ALTERNATIVE, message)
+            MessageMutationKind.ANSWER_FROM -> beginExistingGeneration(ChatGenerationKind.ANSWER_FROM_USER, message)
+            MessageMutationKind.DELETE -> {
+                conversationRepository.deleteMessage(message)
+                refreshConversation(message.conversationId)
+            }
+        }
+    }
+
+    private fun reportChangedHistory() {
+        _error.value = UiError(
+            text("對話已變更", "对话已变更"),
+            text("操作期間訊息歷史發生變更，請重新操作。", "操作期间消息历史发生变化，请重新操作。"),
+            text("原有訊息沒有被刪除。", "原有消息没有被删除。"),
         )
     }
 
+    private suspend fun beginExistingGeneration(kind: ChatGenerationKind, message: MessageEntity) {
+        val conversation = conversationRepository.getConversation(message.conversationId) ?: return
+        val request = ChatGenerationRequest(
+            kind = kind,
+            conversationId = message.conversationId,
+            targetMessageId = message.id,
+            baseVersionId = message.currentVersionId,
+            expectedRevision = conversation.historyRevision,
+        )
+        runWithUnsafeHttpConfirmation(PendingGenerationStart.Existing(request))
+    }
 
-    fun send() {
-        if (_input.value.isBlank() || _isStreaming.value) return
-        runWithUnsafeHttpConfirmation(PendingAction.SEND)
-    }
-    fun retryLastResponse() {
-        if (_selectedConversationId.value == null || _isStreaming.value) return
-        runWithUnsafeHttpConfirmation(PendingAction.RETRY)
-    }
-    fun editMessage(messageId: String, content: String) {
-        val trimmed = content.trim()
-        if (trimmed.isBlank() || _isStreaming.value) return
-        viewModelScope.launch {
-            val message = conversationRepository.getMessage(messageId) ?: return@launch
-            val conversation = conversationRepository.getConversation(message.conversationId) ?: return@launch
-            conversationRepository.updateMessage(message.copy(content = trimmed))
-            if (message.role == "assistant") conversationRepository.clearReasoningContent(message.id)
-            conversationRepository.updateConversation(
-                conversation.copy(
-                    updatedAt = System.currentTimeMillis(),
-                    summary = if (message.createdAt <= conversation.summaryThroughAt) "" else conversation.summary,
-                    summaryThroughAt = if (message.createdAt <= conversation.summaryThroughAt) 0 else conversation.summaryThroughAt,
-                ),
-            )
-            showNotice(text("訊息已更新", "消息已更新"))
-        }
-    }
-    fun resendFromMessage(messageId: String) {
-        if (_selectedConversationId.value == null || _isStreaming.value) return
-        pendingResendMessageId = messageId
-        runWithUnsafeHttpConfirmation(PendingAction.RESEND_FROM_MESSAGE)
-    }
     fun confirmUnsafeHttp() {
         _showUnsafeHttpWarning.value = false
-        val action = pendingAction
-        pendingAction = null
-        when (action) {
-            PendingAction.SEND -> startNewMessage()
-            PendingAction.RETRY -> startRetry()
-            PendingAction.RESEND_FROM_MESSAGE -> startResendFromMessage(pendingResendMessageId)
+        val pending = pendingGenerationStart
+        pendingGenerationStart = null
+        when (pending) {
+            PendingGenerationStart.Send -> startNewMessage()
+            is PendingGenerationStart.Existing -> startGeneration(pending.request)
             null -> Unit
         }
-        pendingResendMessageId = null
     }
-    fun dismissUnsafeHttp() { pendingAction = null; pendingResendMessageId = null; _showUnsafeHttpWarning.value = false }
+
+    fun dismissUnsafeHttp() {
+        pendingGenerationStart = null
+        _showUnsafeHttpWarning.value = false
+    }
+
+    private fun runWithUnsafeHttpConfirmation(start: PendingGenerationStart) {
+        if (settings.value.usesUnsafeHttp) {
+            pendingGenerationStart = start
+            _showUnsafeHttpWarning.value = true
+        } else when (start) {
+            PendingGenerationStart.Send -> startNewMessage()
+            is PendingGenerationStart.Existing -> startGeneration(start.request)
+        }
+    }
+
     fun stopStreaming() {
-        _activeAssistantMessageId.value = null
         streamJob?.cancel()
         api.cancelActive()
-        _isStreaming.value = false
-        showNotice(text("已停止生成", "已停止生成"))
     }
 
     private fun launchGeneration(action: suspend () -> Unit) {
-        // Do not start another generation until the cancelled job finishes its database cleanup.
         if (_isStreaming.value || streamJob?.isCompleted == false) return
         _isStreaming.value = true
         streamJob = viewModelScope.launch {
@@ -298,66 +424,28 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         }
     }
 
-    private fun runWithUnsafeHttpConfirmation(action: PendingAction) {
-        if (settings.value.usesUnsafeHttp) { pendingAction = action; _showUnsafeHttpWarning.value = true }
-        else when (action) {
-            PendingAction.SEND -> startNewMessage()
-            PendingAction.RETRY -> startRetry()
-            PendingAction.RESEND_FROM_MESSAGE -> {
-                startResendFromMessage(pendingResendMessageId)
-                pendingResendMessageId = null
-            }
-        }
-    }
-
     private fun startNewMessage() {
         val content = _input.value.trim()
         if (content.isBlank()) return
         launchGeneration {
-            validateCurrentReasoningMode()
-            _input.value = ""
             val conversationId = _selectedConversationId.value ?: run {
                 navigate(Screen.NEW_CHAT)
-                _input.value = content
-                showNotice(text("請先確認 Persona 與世界設定", "请先确认 Persona 与世界设定"))
                 return@launchGeneration
             }
-            val now = System.currentTimeMillis()
-            conversationRepository.upsertMessage(MessageEntity(UUID.randomUUID().toString(), conversationId, "user", content, now))
-            conversationRepository.getConversation(conversationId)?.let { conversationRepository.updateConversation(it.copy(updatedAt = now)) }
-            streamConversation(conversationId)
+            validateCurrentReasoningMode()
+            conversationRepository.createInitialMessage(conversationId, "user", content)
+            _input.value = ""
+            val conversation = conversationRepository.getConversation(conversationId) ?: return@launchGeneration
+            streamConversation(
+                ChatGenerationRequest(ChatGenerationKind.NEW_REPLY, conversationId, expectedRevision = conversation.historyRevision),
+            )
         }
     }
 
-    private fun startRetry() {
-        val conversationId = _selectedConversationId.value ?: return
+    private fun startGeneration(request: ChatGenerationRequest) {
         launchGeneration {
             validateCurrentReasoningMode()
-            conversationRepository.getMessages(conversationId).lastOrNull()?.takeIf { it.role == "assistant" }?.let { conversationRepository.deleteMessage(it.id) }
-            streamConversation(conversationId)
-        }
-    }
-
-    private fun startResendFromMessage(messageId: String?) {
-        if (messageId == null) return
-        launchGeneration {
-            val message = conversationRepository.getMessage(messageId) ?: return@launchGeneration
-            val conversation = conversationRepository.getConversation(message.conversationId) ?: return@launchGeneration
-            validateReasoningMode(settings.value, conversation.reasoningMode)
-            if (message.role == "assistant") {
-                conversationRepository.deleteMessagesAtOrAfter(message.conversationId, message.createdAt)
-            } else {
-                conversationRepository.deleteMessagesAfter(message.conversationId, message.createdAt)
-            }
-            conversationRepository.updateConversation(
-                conversation.copy(
-                    updatedAt = System.currentTimeMillis(),
-                    summary = if (message.createdAt <= conversation.summaryThroughAt) "" else conversation.summary,
-                    summaryThroughAt = if (message.createdAt <= conversation.summaryThroughAt) 0 else conversation.summaryThroughAt,
-                ),
-            )
-            showNotice(text("已從這則訊息重新發送", "已从这则消息重新发送"))
-            streamConversation(message.conversationId)
+            streamConversation(request)
         }
     }
 
@@ -367,7 +455,11 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         validateReasoningMode(settings.value, conversation.reasoningMode)
     }
 
-    private suspend fun streamConversation(conversationId: String, allowAutoSummary: Boolean = true) {
+    private suspend fun streamConversation(
+        request: ChatGenerationRequest,
+        allowAutoSummary: Boolean = true,
+        temporarySummary: ConversationEntity? = null,
+    ) {
         val current = settings.value
         val key = secretStore.get(current.provider)
         if (key.isBlank() || current.resolvedBaseUrl.isBlank()) {
@@ -378,30 +470,53 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
             )
             return
         }
+        lastFailedRequest = request
         try {
-            streamConversationUseCase(conversationId, current, key) { messageId ->
-                _activeAssistantMessageId.value = messageId
+            val finish = streamConversationUseCase(
+                request, current, key,
+                onAssistantMessageCreated = { _activeAssistantMessageId.value = it },
+                temporarySummary = temporarySummary,
+            )
+            refreshConversation(request.conversationId)
+            lastFailedRequest = null
+            if (finish.reachedLengthLimit) {
+                _error.value = UiError(
+                    current.language.pick("已達輸出上限", "已达到输出上限"),
+                    current.language.pick("模型因 Token 上限停止，本次已生成內容仍已保存。", "模型因 Token 上限停止，本次已生成内容仍已保存。"),
+                    current.language.pick("可在對話資訊調高最大輸出 Token，或使用續寫。", "可在对话信息调高最大输出 Token，或使用续写。"),
+                )
             }
         } catch (error: CancellationException) {
+            refreshConversation(request.conversationId)
             throw error
         } catch (error: Throwable) {
             _activeAssistantMessageId.value = null
             currentCoroutineContext().ensureActive()
             if (allowAutoSummary && error is ApiException && error.isContextLengthError) {
-                runCatching { summarizeConversation(conversationId, current, key, keepRecentMessages = 8, mode = ManualSummaryMode.UN_SUMMARIZED)?.let { _selectedConversation.value = it } }
-                    .onSuccess {
-                        showNotice(current.language.pick("已摘要較早對話，正在重試", "已摘要较早对话，正在重试"))
-                        streamConversation(conversationId, allowAutoSummary = false)
+                try {
+                    val conversation = conversationRepository.getConversation(request.conversationId) ?: return
+                    val history = conversationRepository.getMessages(request.conversationId)
+                    val target = request.targetMessageId?.let { id -> history.firstOrNull { it.id == id } }
+                    val allowed = EffectiveHistoryResolver.resolve(conversation, history, request.kind, target).worldHistory
+                    val mode = if (target != null && conversation.summaryThroughOrder > target.sortOrder) {
+                        ManualSummaryMode.REBUILD_ALL
+                    } else {
+                        ManualSummaryMode.UN_SUMMARIZED
                     }
-                    .onFailure {
-                        currentCoroutineContext().ensureActive()
-                        _error.value = mapError(it, current.language.pick("自動摘要失敗", "自动摘要失败"), current.language)
-                    }
+                    val summary = summarizeConversation(
+                        request.conversationId, current, key, 8, mode,
+                        eligibleHistory = allowed,
+                        persist = false,
+                    ) ?: return
+                    streamConversation(request, allowAutoSummary = false, temporarySummary = summary)
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (failure: Throwable) {
+                    _error.value = mapError(failure, current.language.pick("自動摘要失敗", "自动摘要失败"), current.language)
+                }
             } else {
                 _error.value = mapError(error, current.language.pick("生成失敗", "生成失败"), current.language)
             }
-        } finally {
-            _activeAssistantMessageId.value = null
         }
     }
 
@@ -413,9 +528,9 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
             val key = secretStore.get(current.provider)
             if (key.isBlank() || current.resolvedBaseUrl.isBlank()) {
                 _error.value = UiError(
-                current.language.pick("缺少 API 設定", "缺少 API 设置"),
-                current.language.pick("請設定 ${current.provider.label} 的 API Key 與網址。", "请设置 ${current.provider.label} 的 API Key 与网址。"),
-                current.language.pick("前往設定頁填寫後再試一次。", "前往设置页填写后再试一次。"),
+                    current.language.pick("缺少 API 設定", "缺少 API 设置"),
+                    current.language.pick("請設定 ${current.provider.label} 的 API Key 與網址。", "请设置 ${current.provider.label} 的 API Key 与网址。"),
+                    current.language.pick("前往設定頁填寫後再試一次。", "前往设置页填写后再试一次。"),
                 )
                 return@launch
             }
@@ -431,16 +546,57 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
     }
 
     fun trimOldestContextAndRetry() {
-        val id = _selectedConversationId.value ?: return
+        val request = lastFailedRequest ?: return
         clearError()
         launchGeneration {
-            val conversation = conversationRepository.getConversation(id) ?: return@launchGeneration
-            val history = conversationRepository.getMessages(id).filter { it.content.isNotBlank() }
+            val conversation = conversationRepository.getConversation(request.conversationId) ?: return@launchGeneration
+            if (conversation.historyRevision != request.expectedRevision) return@launchGeneration
+            val all = conversationRepository.getMessages(request.conversationId)
+            val target = request.targetMessageId?.let { id -> all.firstOrNull { it.id == id } }
+            val history = EffectiveHistoryResolver.resolve(conversation, all, request.kind, target).worldHistory
             if (history.size <= 2) return@launchGeneration
             val kept = history.drop(history.size / 2).first()
-            conversationRepository.updateConversation(conversation.copy(contextStartAt = kept.createdAt))
-            showNotice("")
-            streamConversation(id, allowAutoSummary = false)
+            conversationRepository.updateConversation(
+                conversation.copy(contextStartAt = kept.createdAt, contextStartOrder = kept.sortOrder),
+            )
+            streamConversation(request, allowAutoSummary = false)
+        }
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchState.value = ChatSearchState(query = query, revision = _searchState.value.revision)
+        _searchQuery.value = query
+    }
+
+    fun closeSearch() {
+        _searchQuery.value = ""
+        _searchState.value = ChatSearchState(revision = _searchState.value.revision + 1)
+    }
+
+    fun nextSearchResult() = moveSearch(1)
+    fun previousSearchResult() = moveSearch(-1)
+    fun selectSearchResult(index: Int) {
+        val state = _searchState.value
+        if (index in state.hits.indices) _searchState.value = state.copy(currentIndex = index, revision = state.revision + 1)
+    }
+
+    private fun moveSearch(delta: Int) {
+        val state = _searchState.value
+        if (state.hits.isEmpty()) return
+        val next = (max(0, state.currentIndex) + delta).mod(state.hits.size)
+        _searchState.value = state.copy(currentIndex = next, revision = state.revision + 1)
+    }
+
+}
+
+internal fun findChatMessages(query: String, current: List<MessageEntity>): Pair<String, List<ChatSearchHit>> {
+    if (query.isBlank()) return query to emptyList()
+    return query to current.mapNotNull { message ->
+        val index = message.content.indexOf(query, ignoreCase = true)
+        if (index < 0) null else {
+            val start = (index - 24).coerceAtLeast(0)
+            val end = (index + query.length + 36).coerceAtMost(message.content.length)
+            ChatSearchHit(message.id, message.content.substring(start, end).replace('\n', ' '))
         }
     }
 }

@@ -17,6 +17,9 @@
 
 聽雪居不綁定單一模型服務。你可以選擇內建供應商，也可以保存多個 OpenAI 相容端點，在同一個 App 內管理對話、角色、Persona 與世界設定。
 
+> [!NOTE]
+> 聊天室搜尋的程式與測試仍保留，目前介面入口暫時隱藏。切換舊訊息版本前，App 會確認是否刪除後續訊息。
+
 > [!IMPORTANT]
 > 聽雪居不提供共用 API Key，也不包含本地模型。使用前需要準備支援供應商的 API Key；模型費用、速率限制與資料處理由該供應商決定。
 
@@ -24,12 +27,15 @@
 
 - **多端點管理**：內建 OpenRouter、Groq、Cerebras、Agnes、Cloudflare Workers AI，也可新增多個自訂 OpenAI 相容端點。
 - **模型與思考模式**：取得、搜尋或手動輸入模型 ID；每段對話可獨立設定「自動、開啟、關閉」思考模式。
-- **串流聊天**：即時顯示正文與可折疊的思考內容；訊息操作列可查看輸出 token 數與平均 token/s。
-- **訊息操作**：支援複製、編輯、重新生成及快速回到最新訊息。
+- **串流聊天**：即時顯示正文與可折疊的思考內容；AI 訊息操作列可查看輸出 token 數與平均 token/s。
+- **訊息版本**：使用者與 AI 訊息都能保存多個版本，支援切換、AI 生成另一版及續寫。
+- **訊息操作**：支援複製、編輯、逐則刪除、排除 AI 上下文及從指定使用者訊息重新回答。
+- **聊天室搜尋**：搜尋程式與測試保留，介面入口目前暫時隱藏。
 - **角色與 Persona**：分別保存角色設定與使用者身份，可從 TXT、JSON、DOCX 文件交由 AI 整理成草稿。
 - **世界設定集**：依關鍵詞注入地點、人物、關係與規則，也能設定每次生成固定附加的條目。
 - **長對話管理**：手動摘要較早訊息，或在上下文過長時裁切並重試，不會刪除畫面中的原始聊天紀錄。
 - **對話外觀**：每段對話可使用自訂背景圖並調整訊息背景透明度。
+- **回覆控制**：每段對話可設定篇幅偏好、最大輸出 Token 與相容參數欄位。
 - **Android 體驗**：支援繁體中文、简体中文、深色模式、Predictive Back 與主分頁滑動切換。
 
 ## 下載與安裝
@@ -42,10 +48,10 @@
 
 ### 最新版本
 
-目前版本為 **v1.13**：
+目前版本為 **v1.14**：
 
-- [下載簽章版 APK：TingXueJu-v1.13-release.apk](https://github.com/BobJu0721/TingXueJu/releases/download/v1.13/TingXueJu-v1.13-release.apk)
-- [查看 v1.13 發布說明](https://github.com/BobJu0721/TingXueJu/releases/tag/v1.13)
+- [下載簽章版 APK：TingXueJu-v1.14-release.apk](https://github.com/BobJu0721/TingXueJu/releases/download/v1.14/TingXueJu-v1.14-release.apk)
+- [查看 v1.14 發布說明](https://github.com/BobJu0721/TingXueJu/releases/tag/v1.14)
 - [瀏覽所有 Releases](https://github.com/BobJu0721/TingXueJu/releases)
 
 安裝方式：
@@ -141,10 +147,10 @@ docs/                 文件與畫面資產
 
 ## 專案狀態
 
-- 最新穩定版本：**v1.13**
+- 最新穩定版本：**v1.14**
 - 最低系統版本：**Android 12 / API 31**
 - 目前僅支援雲端 API，不支援直接連接本地模型
-- v1.13 加入訊息 token／token/s 統計，並改善 API 端點、模型與思考模式相容性
+- v1.14 加入訊息多版本、續寫、逐則刪除／排除與回覆控制，並修正長思考泡泡點擊問題
 
 詳細版本內容請查看[更新公告](更新公告.md)與 [GitHub Releases](https://github.com/BobJu0721/TingXueJu/releases)。
 

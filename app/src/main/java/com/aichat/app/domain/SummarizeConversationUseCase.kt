@@ -6,6 +6,7 @@ import com.aichat.app.conversationSummaryPlan
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.ConversationEntity
 import com.aichat.app.data.ConversationRepository
+import com.aichat.app.data.MessageEntity
 import com.aichat.app.mergeSummaryInstruction
 import com.aichat.app.network.AiApiClient
 import com.aichat.app.network.ApiChatMessage
@@ -23,9 +24,12 @@ class SummarizeConversationUseCase(
         key: String,
         keepRecentMessages: Int,
         mode: ManualSummaryMode,
+        eligibleHistory: List<MessageEntity>? = null,
+        persist: Boolean = true,
     ): ConversationEntity? {
         val conversation = conversationRepository.getConversation(conversationId) ?: return null
-        val history = conversationRepository.getMessages(conversationId).filter { it.content.isNotBlank() }
+        val history = (eligibleHistory ?: conversationRepository.getMessages(conversationId))
+            .filter { !it.excluded && it.content.isNotBlank() }
         val plan = conversationSummaryPlan(conversation, history, keepRecentMessages, mode)
         val older = plan.messagesToSummarize
         if (older.isEmpty()) {
@@ -48,8 +52,12 @@ class SummarizeConversationUseCase(
             ApiChatMessage("system", settings.language.mergeSummaryInstruction()),
             ApiChatMessage("user", summaries.joinToString("\n\n")),
         ))
-        val updated = conversation.copy(summary = summary.trim(), summaryThroughAt = plan.summaryThroughAt)
-        conversationRepository.updateConversation(updated)
+        val updated = conversation.copy(
+            summary = summary.trim(),
+            summaryThroughAt = plan.summaryThroughAt,
+            summaryThroughOrder = plan.summaryThroughOrder,
+        )
+        if (persist) conversationRepository.updateConversation(updated)
         return updated
     }
 }
