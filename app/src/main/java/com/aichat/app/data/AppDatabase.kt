@@ -51,6 +51,13 @@ interface ChatDao {
     @Upsert
     suspend fun upsertConversation(conversation: ConversationEntity)
 
+    /** 新聊天室一定要有初始路線；已存在的路線不會被覆蓋，摘要與裁切狀態因此得以保留。 */
+    @Transaction
+    suspend fun upsertConversationWithInitialBranch(conversation: ConversationEntity, branch: ConversationBranchEntity) {
+        upsertConversation(conversation)
+        if (getBranch(branch.id) == null) upsertBranch(branch)
+    }
+
     @Update
     suspend fun updateConversation(conversation: ConversationEntity)
 
@@ -66,17 +73,8 @@ interface ChatDao {
     @Query("SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM messages WHERE conversationId = :conversationId")
     suspend fun nextMessageOrder(conversationId: String): Long
 
-    @Query("SELECT COUNT(*) FROM messages WHERE conversationId = :conversationId AND sortOrder > :sortOrder")
-    suspend fun countMessagesAfter(conversationId: String, sortOrder: Long): Int
-
-    @Query("DELETE FROM messages WHERE conversationId = :conversationId AND sortOrder > :sortOrder AND id != :keepMessageId")
-    suspend fun deleteMessagesAfterOrder(conversationId: String, sortOrder: Long, keepMessageId: String = "")
-
     @Query("UPDATE messages SET currentVersionId = :versionId, content = :content WHERE id = :messageId")
     suspend fun selectMessageVersion(messageId: String, versionId: String, content: String)
-
-    @Query("UPDATE messages SET excluded = :excluded WHERE id = :messageId")
-    suspend fun setMessageExcluded(messageId: String, excluded: Boolean)
 
     @Insert
     suspend fun insertMessageVersion(version: MessageVersionEntity)
@@ -90,162 +88,457 @@ interface ChatDao {
     @Upsert
     suspend fun upsertGenerationContext(context: GenerationContextEntity)
 
-    @Transaction
-    suspend fun createMessageWithVersion(message: MessageEntity, version: MessageVersionEntity) {
-        upsertMessage(message.copy(currentVersionId = version.id, content = version.content))
-        insertMessageVersion(version)
-    }
+    // ---- 路線：顯示與生成的唯一依據 ----
+
+    @Query("SELECT * FROM conversation_branches WHERE conversationId = :conversationId ORDER BY createdAt ASC")
+    fun observeBranches(conversationId: String): Flow<List<ConversationBranchEntity>>
+
+    @Query("SELECT * FROM conversation_branches WHERE id = :id")
+    suspend fun getBranch(id: String): ConversationBranchEntity?
+
+    @Query("SELECT * FROM conversation_branches WHERE conversationId = :conversationId ORDER BY createdAt ASC")
+    suspend fun getBranches(conversationId: String): List<ConversationBranchEntity>
+
+    @Upsert
+    suspend fun upsertBranch(branch: ConversationBranchEntity)
+
+    @Query("UPDATE conversation_branches SET sceneNote = :text, sceneNoteEnabled = :enabled WHERE id = :branchId AND conversationId = :conversationId")
+    suspend fun setSceneNote(conversationId: String, branchId: String, text: String, enabled: Boolean)
 
     @Transaction
-    suspend fun createCommittedMessageWithVersion(message: MessageEntity, version: MessageVersionEntity, now: Long): MessageEntity {
-        val ordered = message.copy(sortOrder = nextMessageOrder(message.conversationId))
-        createMessageWithVersion(ordered, version)
-        getConversation(message.conversationId)?.let {
-            updateConversation(it.copy(updatedAt = now, historyRevision = it.historyRevision + 1))
-        }
-        return ordered
-    }
-
-    @Transaction
-    suspend fun startDraft(message: MessageEntity?, version: MessageVersionEntity): MessageEntity? {
-        if (message == null && getMessage(version.messageId)?.currentVersionId != version.baseVersionId) {
-            error("The selected version changed before generation started")
-        }
-        val ordered = message?.copy(
-            currentVersionId = version.id,
-            content = version.content,
-            sortOrder = nextMessageOrder(message.conversationId),
-        )
-        if (ordered != null) upsertMessage(ordered)
-        insertMessageVersion(version)
-        selectMessageVersion(version.messageId, version.id, version.content)
-        return ordered
-    }
-
-    @Transaction
-    suspend fun updateDraft(version: MessageVersionEntity, context: GenerationContextEntity?) {
-        if (getMessage(version.messageId)?.currentVersionId != version.id) return
-        updateMessageVersion(version)
-        selectMessageVersion(version.messageId, version.id, version.content)
-        if (context != null) upsertGenerationContext(context)
-    }
-
-    @Transaction
-    suspend fun rollbackDraft(version: MessageVersionEntity, baseContent: String?, newMessage: Boolean) {
-        val current = getMessage(version.messageId) ?: return
-        if (newMessage) {
-            if (current.currentVersionId == version.id) deleteMessage(version.messageId)
-            else deleteMessageVersion(version.id)
-        } else {
-            val baseId = version.baseVersionId ?: return
-            if (current.currentVersionId == version.id) {
-                selectMessageVersion(version.messageId, baseId, baseContent.orEmpty())
-            }
-            deleteMessageVersion(version.id)
-        }
-    }
-
-    @Transaction
-    suspend fun recoverDraft(version: MessageVersionEntity, base: MessageVersionEntity?) {
-        updateMessageVersion(version.copy(status = MessageVersionStatus.INTERRUPTED))
-        if (base != null) selectMessageVersion(version.messageId, base.id, base.content)
-    }
-
-    @Transaction
-    suspend fun applyVersionChange(
+    suspend fun saveChatInfo(
         conversationId: String,
-        message: MessageEntity,
-        version: MessageVersionEntity,
-        insertVersion: Boolean,
-        expectedRevision: Long,
-        deleteAfter: Boolean,
-        now: Long,
+        branchId: String,
+        note: SceneNote,
+        preference: ReplyLengthPreference,
+        maxTokens: Int?,
+        field: TokenLimitField,
     ): Boolean {
         val conversation = getConversation(conversationId) ?: return false
-        if (conversation.historyRevision != expectedRevision) return false
-        val current = getMessage(message.id) ?: return false
-        if (current.conversationId != conversationId || current.currentVersionId != message.currentVersionId ||
-            version.messageId != message.id || version.status == MessageVersionStatus.DRAFT
-        ) return false
-        if (insertVersion) insertMessageVersion(version)
-        selectMessageVersion(message.id, version.id, version.content)
-        if (deleteAfter) deleteMessagesAfterOrder(conversationId, message.sortOrder, message.id)
-        updateConversation(
-            conversation.copy(
-                updatedAt = now,
+        val branch = getBranch(branchId) ?: return false
+        if (conversation.activeBranchId != branchId || branch.conversationId != conversationId) return false
+        val changed = branch.sceneNoteValue() != note || conversation.replyLengthPreference != preference ||
+            conversation.maxOutputTokens != maxTokens || conversation.tokenLimitField != field
+        if (changed) {
+            setSceneNote(conversationId, branchId, note.text, note.enabled)
+            updateConversation(conversation.copy(
+                replyLengthPreference = preference,
+                maxOutputTokens = maxTokens,
+                tokenLimitField = field,
+                updatedAt = System.currentTimeMillis(),
                 historyRevision = conversation.historyRevision + 1,
-                summary = if (message.sortOrder <= conversation.summaryThroughOrder) "" else conversation.summary,
-                summaryThroughAt = if (message.sortOrder <= conversation.summaryThroughOrder) 0 else conversation.summaryThroughAt,
-                summaryThroughOrder = if (message.sortOrder <= conversation.summaryThroughOrder) 0 else conversation.summaryThroughOrder,
-                contextStartAt = if (message.sortOrder < conversation.contextStartOrder) 0 else conversation.contextStartAt,
-                contextStartOrder = if (message.sortOrder < conversation.contextStartOrder) 0 else conversation.contextStartOrder,
-            ),
-        )
+            ))
+        }
         return true
+    }
+
+    @Query("DELETE FROM conversation_branches WHERE id = :id")
+    suspend fun deleteBranch(id: String)
+
+    @Query("UPDATE conversation_branches SET lastUsedAt = :now WHERE id = :id")
+    suspend fun touchBranch(id: String, now: Long)
+
+    @Query("UPDATE conversation_branches SET summary = :summary, summaryThroughOrder = :throughOrder WHERE id = :id")
+    suspend fun setBranchSummary(id: String, summary: String, throughOrder: Long)
+
+    @Query("UPDATE conversation_branches SET contextStartOrder = :order WHERE id = :id")
+    suspend fun setBranchContextStart(id: String, order: Long)
+
+    @Query("SELECT * FROM branch_messages WHERE branchId = :branchId ORDER BY sortOrder ASC")
+    suspend fun getBranchMessages(branchId: String): List<BranchMessageEntity>
+
+    @Query("SELECT * FROM branch_messages WHERE branchId = :branchId AND messageId = :messageId")
+    suspend fun getBranchMessage(branchId: String, messageId: String): BranchMessageEntity?
+
+    @Query("SELECT b.* FROM conversation_branches b JOIN conversations c ON c.activeBranchId = b.id WHERE c.id = :conversationId")
+    suspend fun getActiveBranch(conversationId: String): ConversationBranchEntity?
+
+    @Transaction
+    suspend fun getGenerationSnapshot(conversationId: String): GenerationSnapshot? {
+        val conversation = getConversation(conversationId) ?: return null
+        val branch = getActiveBranch(conversationId) ?: return null
+        return GenerationSnapshot(conversation.copy(
+            summary = branch.summary, summaryThroughOrder = branch.summaryThroughOrder,
+            contextStartOrder = branch.contextStartOrder, summaryThroughAt = 0, contextStartAt = 0,
+        ), branch, getRouteMessages(conversationId).map(RouteMessageRow::resolved))
+    }
+
+    @Query("SELECT b.* FROM conversation_branches b JOIN conversations c ON c.activeBranchId = b.id WHERE c.id = :conversationId")
+    fun observeActiveBranch(conversationId: String): Flow<ConversationBranchEntity?>
+
+    @Query("SELECT * FROM conversation_branches WHERE forkVersionId = :versionId LIMIT 1")
+    suspend fun getBranchByForkVersion(versionId: String): ConversationBranchEntity?
+
+    @Query("SELECT COUNT(*) FROM conversation_branches WHERE conversationId = :conversationId AND forkMessageId = :messageId")
+    suspend fun countBranchForksAt(conversationId: String, messageId: String): Int
+
+    @Query("UPDATE branch_messages SET excluded = :excluded WHERE branchId = :branchId AND messageId = :messageId")
+    suspend fun setBranchExcluded(branchId: String, messageId: String, excluded: Boolean)
+
+    @Query("DELETE FROM message_versions WHERE messageId = :messageId")
+    suspend fun deleteVersionsForMessage(messageId: String)
+
+    @Query("UPDATE messages SET content = '', currentVersionId = '', deleted = 1 WHERE id = :messageId")
+    suspend fun markMessageDeleted(messageId: String)
+
+    @Query("UPDATE branch_messages SET versionId = '' WHERE messageId = :messageId")
+    suspend fun clearBranchVersion(messageId: String)
+
+    @Transaction
+    suspend fun updateDraft(version: MessageVersionEntity, context: GenerationContextEntity?, messageId: String) {
+        updateMessageVersion(version)
+        selectMessageVersion(messageId, version.id, version.content)
+        if (context != null) upsertGenerationContext(context)
     }
 
     @Transaction
     suspend fun commitDraft(
         conversationId: String,
-        message: MessageEntity,
+        branchId: String,
+        messageId: String,
         version: MessageVersionEntity,
         context: GenerationContextEntity?,
         expectedRevision: Long,
-        cutoffOrder: Long?,
-        temporarySummary: ConversationEntity?,
+        temporarySummary: String?,
+        temporarySummaryThrough: Long,
         now: Long,
     ): Boolean {
         val conversation = getConversation(conversationId) ?: return false
         if (conversation.historyRevision != expectedRevision) return false
-        if (version.messageId != message.id || getMessage(message.id)?.currentVersionId != version.id) return false
+        val row = getBranchMessage(branchId, messageId) ?: return false
+        if (row.versionId != version.id) return false
         updateMessageVersion(version)
-        selectMessageVersion(message.id, version.id, version.content)
+        selectMessageVersion(messageId, version.id, version.content)
         if (context != null) upsertGenerationContext(context)
-        if (cutoffOrder != null) deleteMessagesAfterOrder(conversationId, cutoffOrder, message.id)
-        val invalidatesSummary = cutoffOrder != null && cutoffOrder <= conversation.summaryThroughOrder
-        val resetsContext = cutoffOrder != null && cutoffOrder < conversation.contextStartOrder
-        updateConversation(
-            conversation.copy(
-                updatedAt = now,
-                historyRevision = conversation.historyRevision + 1,
-                summary = temporarySummary?.summary ?: if (invalidatesSummary) "" else conversation.summary,
-                summaryThroughAt = temporarySummary?.summaryThroughAt ?: if (invalidatesSummary) 0 else conversation.summaryThroughAt,
-                summaryThroughOrder = temporarySummary?.summaryThroughOrder ?: if (invalidatesSummary) 0 else conversation.summaryThroughOrder,
-                contextStartAt = if (resetsContext) 0 else conversation.contextStartAt,
-                contextStartOrder = if (resetsContext) 0 else conversation.contextStartOrder,
-            ),
-        )
+        // 自動摘要的臨時結果只套用在這次生成所屬的路線。
+        if (temporarySummary != null) setBranchSummary(branchId, temporarySummary, temporarySummaryThrough)
+        updateConversation(conversation.copy(updatedAt = now, historyRevision = conversation.historyRevision + 1))
         return true
     }
 
     @Transaction
-    suspend fun deleteMessageAndInvalidate(message: MessageEntity, now: Long) {
-        val conversation = getConversation(message.conversationId) ?: return
-        deleteMessage(message.id)
-        updateConversation(
-            conversation.copy(
-                updatedAt = now,
-                historyRevision = conversation.historyRevision + 1,
-                summary = if (message.sortOrder <= conversation.summaryThroughOrder) "" else conversation.summary,
-                summaryThroughAt = if (message.sortOrder <= conversation.summaryThroughOrder) 0 else conversation.summaryThroughAt,
-                summaryThroughOrder = if (message.sortOrder <= conversation.summaryThroughOrder) 0 else conversation.summaryThroughOrder,
-            ),
-        )
+    suspend fun rollbackDraft(
+        conversationId: String,
+        branchId: String,
+        previousBranchId: String,
+        messageId: String,
+        versionId: String,
+        newMessage: Boolean,
+        createdBranch: Boolean,
+        now: Long,
+    ) {
+        val conversation = getConversation(conversationId) ?: return
+        // 只刪掉確實屬於這次草稿的候選分支（同一聊天室、而且分岔版本就是這個草稿版本）。
+        // ID 對不上時保留資料，不依錯誤 ID 猜測式刪除；詳見修復指南的資料完整性要求。
+        val candidate = if (createdBranch) {
+            getBranch(branchId)?.takeIf { it.conversationId == conversationId && it.forkVersionId == versionId }
+        } else {
+            null
+        }
+        deleteMessageVersion(versionId)
+        when {
+            candidate != null -> deleteBranch(candidate.id)
+            !createdBranch -> deleteBranchMessage(branchId, messageId)
+        }
+        if (newMessage) deleteMessage(messageId)
+        val restore = if (candidate != null && previousBranchId.isNotBlank()) previousBranchId else conversation.activeBranchId
+        if (!newMessage) {
+            // 讓 legacy 欄位回到原路線選定的版本，不要留下指向已刪除版本的參照。
+            val version = getBranchMessage(restore, messageId)?.versionId?.let { getMessageVersion(it) }
+            if (version != null) selectMessageVersion(messageId, version.id, version.content)
+        }
+        if (restore != conversation.activeBranchId) {
+            updateConversation(conversation.copy(activeBranchId = restore, updatedAt = now, historyRevision = conversation.historyRevision + 1))
+        }
+    }
+
+    /** 刪除這則訊息在所有路線的版本與生成資料；分岔點保留結構標記，其他訊息不連帶刪除。 */
+    @Transaction
+    suspend fun deleteMessageEverywhere(conversationId: String, messageId: String, now: Long): Boolean {
+        val message = getMessage(messageId) ?: return false
+        if (message.conversationId != conversationId) return false
+        val conversation = getConversation(conversationId) ?: return false
+        getBranchMessagesForMessage(conversationId, messageId).forEach { row ->
+            val branch = getBranch(row.branchId)
+            if (branch != null && branch.summaryThroughOrder > 0 && row.sortOrder <= branch.summaryThroughOrder) {
+                setBranchSummary(branch.id, "", 0)
+            }
+        }
+        deleteVersionsForMessage(messageId)
+        if (countBranchForksAt(conversationId, messageId) > 0) {
+            markMessageDeleted(messageId)
+            clearBranchVersion(messageId)
+        } else {
+            deleteMessage(messageId)
+        }
+        updateConversation(conversation.copy(updatedAt = now, historyRevision = conversation.historyRevision + 1))
+        return true
     }
 
     @Transaction
-    suspend fun setExcludedAndInvalidate(message: MessageEntity, excluded: Boolean, now: Long) {
-        val conversation = getConversation(message.conversationId) ?: return
-        setMessageExcluded(message.id, excluded)
-        updateConversation(
-            conversation.copy(
-                updatedAt = now,
-                historyRevision = conversation.historyRevision + 1,
-                summary = if (message.sortOrder <= conversation.summaryThroughOrder) "" else conversation.summary,
-                summaryThroughAt = if (message.sortOrder <= conversation.summaryThroughOrder) 0 else conversation.summaryThroughAt,
-                summaryThroughOrder = if (message.sortOrder <= conversation.summaryThroughOrder) 0 else conversation.summaryThroughOrder,
+    suspend fun setExcludedInActiveBranch(conversationId: String, messageId: String, excluded: Boolean, now: Long): Boolean {
+        val conversation = getConversation(conversationId) ?: return false
+        val branchId = conversation.activeBranchId.takeIf { it.isNotBlank() } ?: return false
+        val row = getBranchMessage(branchId, messageId) ?: return false
+        setBranchExcluded(branchId, messageId, excluded)
+        val branch = getBranch(branchId)
+        if (branch != null && branch.summaryThroughOrder > 0 && row.sortOrder <= branch.summaryThroughOrder) {
+            setBranchSummary(branchId, "", 0)
+        }
+        updateConversation(conversation.copy(updatedAt = now, historyRevision = conversation.historyRevision + 1))
+        return true
+    }
+
+    @Query("SELECT bm.branchId FROM branch_messages bm JOIN conversation_branches b ON b.id = bm.branchId WHERE b.conversationId = :conversationId AND bm.messageId = :messageId AND bm.versionId = :versionId")
+    suspend fun findBranchesWithVersion(conversationId: String, messageId: String, versionId: String): List<String>
+
+    @Query("SELECT bm.* FROM branch_messages bm JOIN conversation_branches b ON b.id = bm.branchId WHERE b.conversationId = :conversationId AND bm.messageId = :messageId")
+    suspend fun getBranchMessagesForMessage(conversationId: String, messageId: String): List<BranchMessageEntity>
+
+    @Upsert
+    suspend fun upsertBranchMessage(row: BranchMessageEntity)
+
+    @Query("DELETE FROM branch_messages WHERE branchId = :branchId AND messageId = :messageId")
+    suspend fun deleteBranchMessage(branchId: String, messageId: String)
+
+    @Query("SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM branch_messages WHERE branchId = :branchId")
+    suspend fun nextBranchOrder(branchId: String): Long
+
+    /**
+     * 目前路線的訊息，`sortOrder` 換成路線內順序、`content`／`currentVersionId`／`excluded`
+     * 換成該路線選定的版本與排除狀態。上層不需要知道路線的存在。
+     */
+    @Query(
+        "SELECT m.*, bm.versionId AS routeVersionId, bm.sortOrder AS routeSortOrder, bm.excluded AS routeExcluded, " +
+            "COALESCE(v.content, '') AS routeContent, " +
+            "v.authorName AS routeAuthorName, v.authorCharacterId AS routeAuthorCharacterId " +
+            "FROM branch_messages bm " +
+            "JOIN conversations c ON c.activeBranchId = bm.branchId " +
+            "JOIN messages m ON m.id = bm.messageId " +
+            "LEFT JOIN message_versions v ON v.id = bm.versionId " +
+            "WHERE c.id = :conversationId ORDER BY bm.sortOrder ASC",
+    )
+    fun observeRouteMessages(conversationId: String): Flow<List<RouteMessageRow>>
+
+    @Query(
+        "SELECT m.*, bm.versionId AS routeVersionId, bm.sortOrder AS routeSortOrder, bm.excluded AS routeExcluded, " +
+            "COALESCE(v.content, '') AS routeContent, " +
+            "v.authorName AS routeAuthorName, v.authorCharacterId AS routeAuthorCharacterId " +
+            "FROM branch_messages bm " +
+            "JOIN conversations c ON c.activeBranchId = bm.branchId " +
+            "JOIN messages m ON m.id = bm.messageId " +
+            "LEFT JOIN message_versions v ON v.id = bm.versionId " +
+            "WHERE c.id = :conversationId ORDER BY bm.sortOrder ASC",
+    )
+    suspend fun getRouteMessages(conversationId: String): List<RouteMessageRow>
+
+    @Query(
+        "SELECT m.*, bm.versionId AS routeVersionId, bm.sortOrder AS routeSortOrder, bm.excluded AS routeExcluded, " +
+            "COALESCE(v.content, '') AS routeContent, " +
+            "v.authorName AS routeAuthorName, v.authorCharacterId AS routeAuthorCharacterId " +
+            "FROM branch_messages bm " +
+            "JOIN conversations c ON c.activeBranchId = bm.branchId " +
+            "JOIN messages m ON m.id = bm.messageId " +
+            "LEFT JOIN message_versions v ON v.id = bm.versionId " +
+            "WHERE c.id = :conversationId AND m.id = :messageId",
+    )
+    suspend fun getRouteMessage(conversationId: String, messageId: String): RouteMessageRow?
+
+    /**
+     * 目前路線的一次性快照：訊息、版本與生成資料在同一個交易內讀取，避免介面短暫看到
+     * 混合不同路線的狀態。
+     */
+    @Transaction
+    suspend fun getRouteRows(conversationId: String): RouteRows = RouteRows(
+        messages = getRouteMessages(conversationId),
+        versions = getRouteVersions(conversationId),
+        contexts = getRouteGenerationContexts(conversationId),
+    )
+
+    /** 目前路線所有訊息的版本，供版本箭頭使用。 */
+    @Query(
+        "SELECT v.* FROM message_versions v " +
+            "JOIN branch_messages bm ON bm.messageId = v.messageId " +
+            "JOIN conversations c ON c.activeBranchId = bm.branchId " +
+            "WHERE c.id = :conversationId ORDER BY bm.sortOrder ASC, v.versionNumber ASC",
+    )
+    suspend fun getRouteVersions(conversationId: String): List<MessageVersionEntity>
+
+    /** 目前路線選定版本的生成資料（思考內容、世界命中、統計）。 */
+    @Query(
+        "SELECT g.* FROM generation_contexts g " +
+            "JOIN branch_messages bm ON bm.versionId = g.versionId " +
+            "JOIN conversations c ON c.activeBranchId = bm.branchId " +
+            "WHERE c.id = :conversationId",
+    )
+    suspend fun getRouteGenerationContexts(conversationId: String): List<GenerationContextEntity>
+
+    /** 目前路線所有訊息的版本，供版本箭頭使用。 */
+    @Query(
+        "SELECT v.* FROM message_versions v " +
+            "JOIN branch_messages bm ON bm.messageId = v.messageId " +
+            "JOIN conversations c ON c.activeBranchId = bm.branchId " +
+            "WHERE c.id = :conversationId ORDER BY bm.sortOrder ASC, v.versionNumber ASC",
+    )
+    fun observeRouteVersions(conversationId: String): Flow<List<MessageVersionEntity>>
+
+    /** 目前路線選定版本的生成資料（思考內容、世界命中、統計）。 */
+    @Query(
+        "SELECT g.* FROM generation_contexts g " +
+            "JOIN branch_messages bm ON bm.versionId = g.versionId " +
+            "JOIN conversations c ON c.activeBranchId = bm.branchId " +
+            "WHERE c.id = :conversationId",
+    )
+    fun observeRouteGenerationContexts(conversationId: String): Flow<List<GenerationContextEntity>>
+
+    @Transaction
+    suspend fun appendMessageToActiveBranch(
+        conversationId: String,
+        message: MessageEntity,
+        version: MessageVersionEntity,
+        now: Long,
+        expectedBranchId: String? = null,
+        expectedRevision: Long? = null,
+    ): MessageEntity? {
+        val conversation = getConversation(conversationId) ?: return null
+        val branchId = conversation.activeBranchId
+        if (branchId.isBlank()) return null
+        if (expectedBranchId != null && branchId != expectedBranchId) return null
+        if (expectedRevision != null && conversation.historyRevision != expectedRevision) return null
+        val ordered = message.copy(
+            currentVersionId = version.id,
+            content = version.content,
+            sortOrder = nextMessageOrder(conversationId),
+        )
+        upsertMessage(ordered)
+        insertMessageVersion(version)
+        upsertBranchMessage(BranchMessageEntity(branchId, ordered.id, version.id, nextBranchOrder(branchId), false))
+        updateConversation(conversation.copy(updatedAt = now, historyRevision = conversation.historyRevision + 1))
+        return ordered
+    }
+
+    /**
+     * 從 [parentBranchId] 分岔出一條新路線，止於 [messageId] 的 [version]。
+     * 新路線只帶走共同前文，不帶走原路線在分岔點之後的後續。
+     */
+    @Transaction
+    suspend fun forkBranchAtVersion(
+        parentBranchId: String,
+        messageId: String,
+        version: MessageVersionEntity,
+        newBranchId: String,
+        insertVersion: Boolean,
+        legacyIncomplete: Boolean,
+        now: Long,
+        preserveTrailingNotes: Boolean = false,
+    ): Boolean {
+        val parent = getBranch(parentBranchId) ?: return false
+        val conversation = getConversation(parent.conversationId) ?: return false
+        val rows = getBranchMessages(parentBranchId)
+        val forkRow = rows.firstOrNull { it.messageId == messageId } ?: return false
+        if (insertVersion) insertMessageVersion(version)
+        val keepsSummary = parent.summary.isNotBlank() && parent.summaryThroughOrder in 1 until forkRow.sortOrder
+        upsertBranch(
+            ConversationBranchEntity(
+                id = newBranchId,
+                conversationId = parent.conversationId,
+                sourceBranchId = parentBranchId,
+                forkMessageId = messageId,
+                forkVersionId = version.id,
+                createdAt = now,
+                lastUsedAt = now,
+                summary = if (keepsSummary) parent.summary else "",
+                summaryThroughOrder = if (keepsSummary) parent.summaryThroughOrder else 0,
+                contextStartOrder = parent.contextStartOrder.takeIf { it in 1 until forkRow.sortOrder } ?: 0,
+                legacyIncomplete = legacyIncomplete,
+                sceneNote = parent.sceneNote,
+                sceneNoteEnabled = parent.sceneNoteEnabled,
             ),
         )
+        rows.filter { it.sortOrder < forkRow.sortOrder }
+            .forEach { upsertBranchMessage(it.copy(branchId = newBranchId)) }
+        upsertBranchMessage(BranchMessageEntity(newBranchId, messageId, version.id, forkRow.sortOrder, forkRow.excluded))
+        if (preserveTrailingNotes) {
+            rows.filter { it.sortOrder > forkRow.sortOrder }.forEach { row ->
+                if (getMessage(row.messageId)?.kind == MessageKind.PRIVATE_NOTE) {
+                    upsertBranchMessage(row.copy(branchId = newBranchId))
+                }
+            }
+        }
+        // messages 的 legacy 欄位跟著目前路線走，方便直接讀取單列的地方。
+        selectMessageVersion(messageId, version.id, version.content)
+        updateConversation(
+            conversation.copy(activeBranchId = newBranchId, updatedAt = now, historyRevision = conversation.historyRevision + 1),
+        )
+        return true
+    }
+
+    /** 分岔出一條新路線，前文到 [anchorMessageId] 為止，再接上新的 [message]。 */
+    @Transaction
+    suspend fun forkBranchAppendingMessage(
+        parentBranchId: String,
+        anchorMessageId: String,
+        message: MessageEntity,
+        version: MessageVersionEntity,
+        newBranchId: String,
+        now: Long,
+    ): MessageEntity? {
+        val parent = getBranch(parentBranchId) ?: return null
+        val conversation = getConversation(parent.conversationId) ?: return null
+        val rows = getBranchMessages(parentBranchId)
+        val anchor = rows.firstOrNull { it.messageId == anchorMessageId } ?: return null
+        // 新訊息必須屬於這條路線的聊天室，而且版本要指向這個新訊息。
+        if (message.conversationId != parent.conversationId) return null
+        if (version.messageId != message.id) return null
+        val ordered = message.copy(
+            currentVersionId = version.id,
+            content = version.content,
+            sortOrder = nextMessageOrder(parent.conversationId),
+        )
+        // 先寫父資料（messages）再寫子資料（message_versions）。messageId 是指向 messages.id 的
+        // 外鍵且沒有延遲檢查，順序顛倒會當場 FOREIGN KEY constraint failed。
+        upsertMessage(ordered)
+        insertMessageVersion(version)
+        val keepsSummary = parent.summary.isNotBlank() && parent.summaryThroughOrder in 1..anchor.sortOrder
+        upsertBranch(
+            ConversationBranchEntity(
+                id = newBranchId,
+                conversationId = parent.conversationId,
+                sourceBranchId = parentBranchId,
+                forkMessageId = anchorMessageId,
+                // 與 forkBranchAtVersion 一致：記錄這條路線建立時選定的版本。
+                // 草稿回滾與中斷恢復都靠這個欄位找回自己的候選分支。
+                forkVersionId = version.id,
+                createdAt = now,
+                lastUsedAt = now,
+                summary = if (keepsSummary) parent.summary else "",
+                summaryThroughOrder = if (keepsSummary) parent.summaryThroughOrder else 0,
+                contextStartOrder = parent.contextStartOrder.takeIf { it in 1..anchor.sortOrder } ?: 0,
+                legacyIncomplete = false,
+                sceneNote = parent.sceneNote,
+                sceneNoteEnabled = parent.sceneNoteEnabled,
+            ),
+        )
+        rows.filter { it.sortOrder <= anchor.sortOrder }
+            .forEach { upsertBranchMessage(it.copy(branchId = newBranchId)) }
+        upsertBranchMessage(BranchMessageEntity(newBranchId, ordered.id, version.id, anchor.sortOrder + 1, false))
+        updateConversation(
+            conversation.copy(activeBranchId = newBranchId, updatedAt = now, historyRevision = conversation.historyRevision + 1),
+        )
+        return ordered
+    }
+
+    @Transaction
+    suspend fun activateBranch(conversationId: String, branchId: String, now: Long): Boolean {
+        val conversation = getConversation(conversationId) ?: return false
+        val branch = getBranch(branchId) ?: return false
+        if (branch.conversationId != conversationId) return false
+        touchBranch(branchId, now)
+        if (conversation.activeBranchId == branchId) return true
+        updateConversation(
+            conversation.copy(activeBranchId = branchId, updatedAt = now, historyRevision = conversation.historyRevision + 1),
+        )
+        return true
     }
 
     @Query("SELECT * FROM profiles WHERE type = :type ORDER BY updatedAt DESC")
@@ -328,8 +621,10 @@ interface ChatDao {
         ConversationWorldSetEntity::class,
         GenerationContextEntity::class,
         MessageVersionEntity::class,
+        ConversationBranchEntity::class,
+        BranchMessageEntity::class,
     ],
-    version = 9,
+    version = 12,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -421,13 +716,98 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversations ADD COLUMN activeBranchId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `conversation_branches` (`id` TEXT NOT NULL, `conversationId` TEXT NOT NULL, " +
+                        "`sourceBranchId` TEXT, `forkMessageId` TEXT, `forkVersionId` TEXT, `createdAt` INTEGER NOT NULL, " +
+                        "`lastUsedAt` INTEGER NOT NULL, `summary` TEXT NOT NULL, `summaryThroughOrder` INTEGER NOT NULL DEFAULT 0, " +
+                        "`contextStartOrder` INTEGER NOT NULL DEFAULT 0, `legacyIncomplete` INTEGER NOT NULL DEFAULT 0, " +
+                        "PRIMARY KEY(`id`), FOREIGN KEY(`conversationId`) REFERENCES `conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_conversation_branches_conversationId` ON `conversation_branches` (`conversationId`)")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_conversation_branches_conversationId_forkMessageId_forkVersionId` " +
+                        "ON `conversation_branches` (`conversationId`, `forkMessageId`, `forkVersionId`)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `branch_messages` (`branchId` TEXT NOT NULL, `messageId` TEXT NOT NULL, " +
+                        "`versionId` TEXT NOT NULL, `sortOrder` INTEGER NOT NULL, `excluded` INTEGER NOT NULL DEFAULT 0, " +
+                        "PRIMARY KEY(`branchId`, `messageId`), " +
+                        "FOREIGN KEY(`branchId`) REFERENCES `conversation_branches`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`messageId`) REFERENCES `messages`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_branch_messages_branchId` ON `branch_messages` (`branchId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_branch_messages_messageId` ON `branch_messages` (`messageId`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_branch_messages_branchId_sortOrder` ON `branch_messages` (`branchId`, `sortOrder`)")
+
+                // 1. 每個聊天室建立初始路線，並把目前的摘要與裁切狀態搬過去（無訊息的聊天室也會得到空路線）。
+                db.execSQL(
+                    "INSERT INTO conversation_branches (id, conversationId, sourceBranchId, forkMessageId, forkVersionId, " +
+                        "createdAt, lastUsedAt, summary, summaryThroughOrder, contextStartOrder, legacyIncomplete) " +
+                        "SELECT 'branch-' || id, id, NULL, NULL, NULL, createdAt, updatedAt, summary, summaryThroughOrder, contextStartOrder, 0 FROM conversations",
+                )
+                db.execSQL("UPDATE conversations SET activeBranchId = 'branch-' || id")
+                // 2. 初始路線按既有順序引用目前選中的版本，正文與思考仍共用 message_versions，不複製。
+                db.execSQL(
+                    "INSERT INTO branch_messages (branchId, messageId, versionId, sortOrder, excluded) " +
+                        "SELECT 'branch-' || conversationId, id, currentVersionId, sortOrder, excluded FROM messages",
+                )
+                // 3. 尚存的未選版本建立相容路線：升級當下可用的共同前文 + 該版本，不接上現行版本的後續。
+                //    這些路線沒有原後續資料，legacyIncomplete 標記起來，介面才知道要提示。
+                db.execSQL(
+                    "INSERT INTO conversation_branches (id, conversationId, sourceBranchId, forkMessageId, forkVersionId, " +
+                        "createdAt, lastUsedAt, summary, summaryThroughOrder, contextStartOrder, legacyIncomplete) " +
+                        "SELECT 'legacy-' || m.id || '-' || v.id, m.conversationId, 'branch-' || m.conversationId, m.id, v.id, " +
+                        "v.createdAt, v.createdAt, '', 0, 0, 1 " +
+                        "FROM message_versions v JOIN messages m ON m.id = v.messageId WHERE v.id != m.currentVersionId",
+                )
+                db.execSQL(
+                    "INSERT INTO branch_messages (branchId, messageId, versionId, sortOrder, excluded) " +
+                        "SELECT 'legacy-' || m.id || '-' || v.id, bm.messageId, bm.versionId, bm.sortOrder, bm.excluded " +
+                        "FROM message_versions v JOIN messages m ON m.id = v.messageId " +
+                        "JOIN branch_messages bm ON bm.branchId = 'branch-' || m.conversationId AND bm.sortOrder < m.sortOrder " +
+                        "WHERE v.id != m.currentVersionId",
+                )
+                db.execSQL(
+                    "INSERT INTO branch_messages (branchId, messageId, versionId, sortOrder, excluded) " +
+                        "SELECT 'legacy-' || m.id || '-' || v.id, m.id, v.id, m.sortOrder, m.excluded " +
+                        "FROM message_versions v JOIN messages m ON m.id = v.messageId WHERE v.id != m.currentVersionId",
+                )
+            }
+        }
+
+        internal val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversation_branches ADD COLUMN sceneNote TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE conversation_branches ADD COLUMN sceneNoteEnabled INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /**
+         * v11 → v12：訊息種類與手寫角色署名。
+         *
+         * 既有訊息全部是 `CHAT`（保留原本的 `user`／`assistant`），正文、版本與生成資料原樣保留。
+         * 署名放在版本上，所以角色日後改名或刪除都不會改寫既有台詞。
+         */
+        internal val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'CHAT'")
+                db.execSQL("ALTER TABLE messages ADD COLUMN authorName TEXT")
+                db.execSQL("ALTER TABLE message_versions ADD COLUMN authorName TEXT")
+                db.execSQL("ALTER TABLE message_versions ADD COLUMN authorCharacterId TEXT")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "ai-chat.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12).build().also { instance = it }
             }
     }
 }

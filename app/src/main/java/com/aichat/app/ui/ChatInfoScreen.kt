@@ -1,6 +1,7 @@
 package com.aichat.app.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -30,6 +32,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -43,9 +48,11 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +60,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -62,6 +71,7 @@ import com.aichat.app.*
 import com.aichat.app.data.AppLanguage
 import com.aichat.app.data.ReplyLengthPreference
 import com.aichat.app.data.TokenLimitField
+import com.aichat.app.data.SceneNote
 import kotlin.math.roundToInt
 
 @Composable
@@ -74,17 +84,40 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
     val entryCounts by viewModel.worldEntryCounts.collectAsStateWithLifecycle()
     val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val isSummarizing by viewModel.isSummarizingConversation.collectAsStateWithLifecycle()
+    val isSaving by viewModel.isSavingChatInfo.collectAsStateWithLifecycle()
+    val editorBranch by viewModel.chatInfoBranch.collectAsStateWithLifecycle()
     val countMap = remember(entryCounts) { entryCounts.associate { it.worldSetId to it.count } }
     val current = conversation ?: return
+    LaunchedEffect(current.id) { viewModel.loadChatInfo(current.id) }
+    val branch = editorBranch?.takeIf { it.conversationId == current.id } ?: return
+    var sceneText by rememberSaveable(current.id, branch.id) { mutableStateOf(branch.sceneNote) }
+    var sceneEnabled by rememberSaveable(current.id, branch.id) { mutableStateOf(branch.sceneNoteEnabled) }
+    var discardDialog by remember(current.id, branch.id) { mutableStateOf(false) }
+    val sceneDirty = sceneText != branch.sceneNote || sceneEnabled != branch.sceneNoteEnabled
+    val requestBack = { if (!isSaving) { if (sceneDirty) discardDialog = true else onBack() } }
+    BackHandler(enabled = sceneDirty || isSaving) { requestBack() }
+    if (discardDialog) {
+        AlertDialog(
+            onDismissRequest = { discardDialog = false },
+            title = { Text(language.pick("捨棄變更？", "舍弃更改？")) },
+            text = { Text(language.pick("本場劇情提示尚未儲存。", "本场剧情提示尚未保存。")) },
+            confirmButton = { TextButton(onClick = { discardDialog = false; onBack() }) {
+                Text(language.pick("捨棄變更", "舍弃更改"))
+            } },
+            dismissButton = { TextButton(onClick = { discardDialog = false }) {
+                Text(language.pick("繼續編輯", "继续编辑"))
+            } },
+        )
+    }
     var bubbleTransparency by remember(current.id, current.messageBubbleOpacity) {
         mutableStateOf(1f - current.messageBubbleOpacity.coerceIn(0.35f, 1f))
     }
     var summaryMode by remember(current.id) { mutableStateOf(ManualSummaryMode.UN_SUMMARIZED) }
     var keepRecentText by remember(current.id) { mutableStateOf("20") }
     var summaryModeMenu by remember { mutableStateOf(false) }
-    var replyPreference by remember(current.id) { mutableStateOf(current.replyLengthPreference) }
-    var maxTokensText by remember(current.id) { mutableStateOf(current.maxOutputTokens?.toString().orEmpty()) }
-    var tokenField by remember(current.id) { mutableStateOf(current.tokenLimitField) }
+    var replyPreference by remember(current.id, branch.id) { mutableStateOf(current.replyLengthPreference) }
+    var maxTokensText by rememberSaveable(current.id, branch.id) { mutableStateOf(current.maxOutputTokens?.toString().orEmpty()) }
+    var tokenField by remember(current.id, branch.id) { mutableStateOf(current.tokenLimitField) }
     var preferenceMenu by remember { mutableStateOf(false) }
     var tokenFieldMenu by remember { mutableStateOf(false) }
     val parsedMaxTokens = maxTokensText.trim().toIntOrNull()?.takeIf { it > 0 }
@@ -116,7 +149,7 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
                         contentAlignment = Alignment.Center,
-                    ) { Back(language, onBack) }
+                    ) { Back(language, requestBack) }
                     Text(
                         language.pick("對話資訊", "对话信息"),
                         Modifier.weight(1f),
@@ -135,13 +168,15 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
                 Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.background)
+                    .imePadding()
                     .padding(horizontal = 22.dp, vertical = 12.dp)
             ) {
                 Button(
                     onClick = {
-                        viewModel.updateConversationGenerationOptions(replyPreference, parsedMaxTokens, tokenField, onBack)
+                        viewModel.saveChatInfo(current.id, branch.id, SceneNote(sceneText, sceneEnabled),
+                            replyPreference, parsedMaxTokens, tokenField, onBack)
                     },
-                    enabled = tokenLimitValid,
+                    enabled = tokenLimitValid && !isStreaming && !isSummarizing && !isSaving,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) { Text(language.pick("儲存並返回", "保存并返回"), fontWeight = FontWeight.Bold, fontSize = 18.sp) }
@@ -227,6 +262,35 @@ internal fun ChatInfoScreen(viewModel: ChatViewModel, language: AppLanguage, onB
                     subtitle = language.pick("$count 條目", "$count 条目"),
                     onClick = { viewModel.toggleConversationWorldSet(set.id) },
                 )
+            }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(language.pick("本場劇情提示", "本场剧情提示"), Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                    Switch(checked = sceneEnabled, onCheckedChange = { sceneEnabled = it },
+                        enabled = !isSaving, modifier = Modifier.semantics {
+                            contentDescription = language.pick("啟用本場劇情提示", "启用本场剧情提示")
+                        })
+                }
+            }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = sceneText,
+                        onValueChange = { sceneText = it },
+                        enabled = !isSaving,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp),
+                        label = { Text(language.pick("劇情提示內容", "剧情提示内容")) },
+                        minLines = 5,
+                        maxLines = 10,
+                        placeholder = { Text(language.pick(
+                            "可填寫目前場景、接下來的劇情方向或敘事要求。",
+                            "可填写目前场景、接下来的剧情方向或叙事要求。")) },
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                    Text(language.pick("僅套用於目前分支。啟用後，每次生成都會附加；建議保持精簡。",
+                        "仅应用于当前分支。启用后，每次生成都会附加；建议保持精简。"),
+                        fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             item { SectionHead(language.pick("回覆設定", "回复设置")) }
             item {

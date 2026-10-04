@@ -363,6 +363,8 @@ private fun TestBubble(
         onEdit = { _, _ -> },
         onSelectVersion = { _, _ -> },
         onGenerateAlternative = { },
+        onAiReplyFrom = { },
+        onEditAuthored = { },
         onAnswerFrom = { },
         onContinue = { },
         onDelete = { },

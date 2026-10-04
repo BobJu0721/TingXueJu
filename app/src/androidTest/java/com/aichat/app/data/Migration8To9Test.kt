@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
-import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
@@ -12,7 +11,6 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
 class Migration8To9Test {
@@ -75,55 +73,6 @@ class Migration8To9Test {
             assertEquals(0L, cursor.getLong(4))
         }
         helper.close()
-    }
-
-    @Test fun versionTransactionsTruncateAtomicallyAndFailedDraftRollsBack() = runBlocking {
-        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
-        val repository = ConversationRepository(db.chatDao())
-        repository.upsertConversation(ConversationEntity("c", "chat", 1, 1))
-        val first = repository.createInitialMessage("c", "user", "one", 10)
-        repository.createInitialMessage("c", "assistant", "two", 20)
-        assertEquals(1, repository.countMessagesAfter(first))
-
-        val revision = repository.getConversation("c")!!.historyRevision
-        assertTrue(repository.addEditedVersion(first, "one edited", revision))
-        assertEquals(listOf("one edited"), repository.getMessages("c").map { it.content })
-        assertEquals(2, repository.getMessageVersions(first.id).size)
-
-        val current = repository.getMessage(first.id)!!
-        val base = repository.getMessageVersion(current.currentVersionId)!!
-        val beforeDraft = current.currentVersionId
-        val (_, draft) = repository.createDraft("c", MessageVersionSource.REGENERATED, current, base, "")
-        repository.updateDraft(draft.copy(content = "failed preview"), GenerationContextEntity(draft.id, reasoningContent = "temp"))
-        repository.rollbackDraft(draft.copy(content = "failed preview"), newMessage = false)
-        val restored = repository.getMessage(first.id)!!
-        assertEquals(beforeDraft, restored.currentVersionId)
-        assertEquals("one edited", restored.content)
-        assertNull(repository.getMessageVersion(draft.id))
-
-        repository.setMessageExcluded(restored, true)
-        assertTrue(repository.getMessage(first.id)!!.excluded)
-        repository.deleteMessage(repository.getMessage(first.id)!!)
-        assertTrue(repository.getMessages("c").isEmpty())
-        db.close()
-    }
-
-    @Test fun interruptedDraftRemainsAvailableWithoutReplacingOriginalSelection() = runBlocking {
-        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
-        val repository = ConversationRepository(db.chatDao())
-        repository.upsertConversation(ConversationEntity("c", "chat", 1, 1))
-        val original = repository.createInitialMessage("c", "assistant", "answer")
-        val (_, draft) = repository.createDraft(
-            "c", MessageVersionSource.CONTINUATION, original,
-            repository.getMessageVersion(original.currentVersionId), "answer",
-        )
-        repository.updateDraft(draft.copy(content = "answer more"), null)
-        repository.recoverInterruptedDrafts()
-        assertEquals(original.currentVersionId, repository.getMessage(original.id)?.currentVersionId)
-        assertEquals("answer", repository.getMessage(original.id)?.content)
-        assertEquals(MessageVersionStatus.INTERRUPTED, repository.getMessageVersion(draft.id)?.status)
-        assertEquals("answer more", repository.getMessageVersion(draft.id)?.content)
-        db.close()
     }
 
     private fun open(version: Int, callback: SupportSQLiteOpenHelper.Callback): SupportSQLiteOpenHelper {

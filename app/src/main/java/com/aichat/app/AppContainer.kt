@@ -10,6 +10,7 @@ import com.aichat.app.data.ProfileRepository
 import com.aichat.app.data.SecretStore
 import com.aichat.app.data.SettingsRepository
 import com.aichat.app.data.WorldInfoRepository
+import com.aichat.app.domain.DraftUserReplyUseCase
 import com.aichat.app.domain.ListModelsUseCase
 import com.aichat.app.domain.OrganizeProfileUseCase
 import com.aichat.app.domain.OrganizeWorldSetUseCase
@@ -28,22 +29,32 @@ class AIChatApplication : Application() {
     }
 }
 
-class AppContainer(context: Context) {
+/**
+ * 依賴容器。
+ *
+ * [database] 只是為了讓測試能注入隔離的資料庫；正式路徑沿用 [AppDatabase.get] 的單例。
+ */
+class AppContainer(
+    context: Context,
+    database: AppDatabase = AppDatabase.get(context.applicationContext),
+    apiClient: AiApiClient? = null,
+) {
     val appContext: Context = context.applicationContext
-    private val dao = AppDatabase.get(appContext).chatDao()
+    private val dao = database.chatDao()
 
     val conversationRepository = ConversationRepository(dao)
     val profileRepository = ProfileRepository(dao)
     val worldInfoRepository = WorldInfoRepository(dao)
     val settingsRepository = SettingsRepository(appContext)
     val secretStore by lazy { SecretStore(appContext) }
-    val api by lazy { AiApiClient() }
+    val api by lazy { apiClient ?: AiApiClient() }
     val listModelsUseCase by lazy { ListModelsUseCase(api) }
     val organizeProfileUseCase by lazy { OrganizeProfileUseCase(api) }
     val organizeWorldSetUseCase by lazy { OrganizeWorldSetUseCase(api) }
     val saveImportedWorldSetUseCase by lazy { SaveImportedWorldSetUseCase(worldInfoRepository) }
     val streamConversationUseCase by lazy { StreamConversationUseCase(conversationRepository, profileRepository, worldInfoRepository, api) }
     val summarizeConversationUseCase by lazy { SummarizeConversationUseCase(conversationRepository, api) }
+    val draftUserReplyUseCase by lazy { DraftUserReplyUseCase(conversationRepository, profileRepository, worldInfoRepository, api) }
 }
 
 class AppViewModelFactory(private val appContainer: AppContainer) : ViewModelProvider.Factory {

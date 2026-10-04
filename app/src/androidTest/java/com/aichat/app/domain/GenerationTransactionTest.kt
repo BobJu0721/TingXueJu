@@ -63,16 +63,19 @@ class GenerationTransactionTest {
         fixture.close()
     }
 
-    @Test fun successfulAlternativeCreatesVersionThenDeletesFuture() = runBlocking {
+    @Test fun successfulAlternativeKeepsTheOriginalRouteAndItsFutureHistory() = runBlocking {
         val fixture = fixture(200, sse("""{"choices":[{"delta":{"content":"replacement"}}]}""", "[DONE]"))
+        val originalBranch = fixture.repository.getActiveBranch("c")!!.id
         val target = fixture.repository.getMessages("c")[1]
         fixture.useCase(request(ChatGenerationKind.ALTERNATIVE, target, fixture.repository), fixture.settings, "test")
-        val messages = fixture.repository.getMessages("c")
-        assertEquals(listOf("question", "replacement"), messages.map { it.content })
+        // 新路線只到新回答為止。
+        assertEquals(listOf("question", "replacement"), fixture.repository.getMessages("c").map { it.content })
+        // 舊回答與其後續完整留在原路線，沒有任何隱含刪除。
+        assertEquals(listOf("question", "original", "future"), fixture.repository.getBranchContents(originalBranch))
         val versions = fixture.repository.getMessageVersions(target.id)
         assertEquals(2, versions.size)
         assertEquals(MessageVersionSource.REGENERATED, versions.last().source)
-        assertEquals(versions.last().id, messages.last().currentVersionId)
+        assertEquals(versions.last().id, fixture.repository.getMessages("c").last().currentVersionId)
         fixture.close()
     }
 
@@ -88,9 +91,10 @@ class GenerationTransactionTest {
         fixture.close()
     }
 
-    @Test fun stoppingAfterTextSavesPartialAlternativeAndAppliesConfirmedCutoff() = runBlocking {
+    @Test fun stoppingAfterTextSavesPartialAnswerOnItsOwnRoute() = runBlocking {
         val pipe = Pipe(8192)
         val fixture = fixture(200, "", pipe = pipe)
+        val originalBranch = fixture.repository.getActiveBranch("c")!!.id
         val target = fixture.repository.getMessages("c")[1]
         val job = async(Dispatchers.Default) {
             fixture.useCase(request(ChatGenerationKind.ALTERNATIVE, target, fixture.repository), fixture.settings, "test")
@@ -108,6 +112,7 @@ class GenerationTransactionTest {
             job.join()
 
             assertEquals(listOf("question", " more"), fixture.repository.getMessages("c").map { it.content })
+            assertEquals(listOf("question", "original", "future"), fixture.repository.getBranchContents(originalBranch))
             val versions = fixture.repository.getMessageVersions(target.id)
             assertEquals(listOf("original", " more"), versions.map { it.content })
             assertEquals(MessageVersionStatus.PARTIAL, versions.last().status)
@@ -145,6 +150,124 @@ class GenerationTransactionTest {
             fixture.close()
         }
     }
+
+    // ---- 編輯後重發：新增 AI 訊息的分岔路徑 ----
+
+    /**
+     * 使用者回報的路徑：編輯自己的訊息後按 ⟳。
+     *
+     * 編輯後的路線只有編輯過的輸入，沒有緊接著的 AI 回覆，因此走
+     * `forkBranchAppendingMessage()`；舊版在那裡先寫子資料（版本）才寫父資料（訊息），
+     * `message_versions.messageId` 的外鍵當場失敗。
+     */
+    @Test fun resendingAfterEditAppendsAnswerWithoutForeignKeyError() = runBlocking {
+        val fixture = fixture(200, sse("""{"choices":[{"delta":{"content":"看到小船"}}]}"""), includeFuture = false)
+        val originalBranch = fixture.repository.getActiveBranch("c")!!.id
+        val first = fixture.repository.getMessages("c").first()
+
+        val revision = fixture.repository.getConversation("c")!!.historyRevision
+        assertTrue(fixture.repository.addEditedVersion("c", first.id, "去海邊", revision))
+        val editedBranch = fixture.repository.getActiveBranch("c")!!.id
+        assertEquals(listOf("去海邊"), fixture.repository.getBranchContents(editedBranch))
+        assertNotEquals(originalBranch, editedBranch)
+
+        val target = fixture.repository.getMessages("c").first()
+        fixture.useCase(
+            request(ChatGenerationKind.ANSWER_FROM_USER, target, fixture.repository),
+            fixture.settings,
+            "test",
+        )
+
+        // 新路線：去海邊 → 看到小船
+        assertEquals(listOf("去海邊", "看到小船"), fixture.repository.getMessages("c").map { it.content })
+        // 編輯前的路線完整保留，沒有被刪除也沒有被改寫。
+        assertEquals(listOf("question", "original"), fixture.repository.getBranchContents(originalBranch))
+
+        // 新路線必須真的屬於這個聊天室，而且草稿分支與路線關聯一致。
+        val active = fixture.repository.getActiveBranch("c")!!
+        assertEquals("c", active.conversationId)
+        assertTrue(fixture.repository.getBranchMessages(active.id).all { it.branchId == active.id })
+
+        // 新回答的版本已完成，並帶有生成資料。
+        val reply = fixture.repository.getMessages("c").last()
+        val replyVersions = fixture.repository.getMessageVersions(reply.id)
+        assertEquals(1, replyVersions.size)
+        assertEquals(MessageVersionStatus.COMPLETE, replyVersions.single().status)
+        assertNotNull(getGenerationContext(fixture.db, replyVersions.single().id))
+
+        assertEquals("外鍵必須乾淨", emptyList<String>(), foreignKeyViolations(fixture.db))
+        fixture.close()
+    }
+
+    @Test fun failedResendKeepsEditedBranchAndCanRetry() = runBlocking {
+        val failing = fixture(500, """{"error":{"message":"failed"}}""", includeFuture = false)
+        val originalBranch = failing.repository.getActiveBranch("c")!!.id
+        val first = failing.repository.getMessages("c").first()
+        val revision = failing.repository.getConversation("c")!!.historyRevision
+        failing.repository.addEditedVersion("c", first.id, "去海邊", revision)
+        val editedBranch = failing.repository.getActiveBranch("c")!!.id
+        assertNotEquals(originalBranch, editedBranch)
+
+        val target = failing.repository.getMessages("c").first()
+        val failure = runCatching {
+            failing.useCase(
+                request(ChatGenerationKind.ANSWER_FROM_USER, target, failing.repository),
+                failing.settings,
+                "test",
+            )
+        }
+        assertTrue("重發應該失敗", failure.isFailure)
+        assertFalse(
+            "失敗原因不應是外鍵錯誤：${failure.exceptionOrNull()}",
+            (failure.exceptionOrNull()?.message ?: "").contains("FOREIGN KEY", ignoreCase = true),
+        )
+
+        // 回到編輯版，本次草稿清乾淨，編輯內容仍在。
+        assertEquals(editedBranch, failing.repository.getActiveBranch("c")!!.id)
+        assertEquals(listOf("去海邊"), failing.repository.getMessages("c").map { it.content })
+        // 使用者的編輯沒有被撤銷。
+        assertEquals(2, failing.repository.getMessageVersions(first.id).size)
+        // 這次失敗的候選分支與新 AI 訊息都已清除，只剩原本與編輯兩條路線。
+        assertEquals(2, failing.repository.getBranches("c").size)
+        assertEquals(listOf("question", "original"), failing.repository.getBranchContents(originalBranch))
+        assertEquals("外鍵必須乾淨", emptyList<String>(), foreignKeyViolations(failing.db))
+        failing.close()
+    }
+
+    // ---- 未編輯直接重發：沿用緊接著的既有 AI 回覆 ----
+
+    @Test fun resendingWithoutEditKeepsOriginalRouteAndAddsAnswerVersion() = runBlocking {
+        val fixture = fixture(200, sse("""{"choices":[{"delta":{"content":"second answer"}}]}"""))
+        val originalBranch = fixture.repository.getActiveBranch("c")!!.id
+        val question = fixture.repository.getMessages("c").first()
+        val answerId = fixture.repository.getMessages("c")[1].id
+
+        fixture.useCase(
+            request(ChatGenerationKind.ANSWER_FROM_USER, question, fixture.repository),
+            fixture.settings,
+            "test",
+        )
+
+        assertEquals(listOf("question", "second answer"), fixture.repository.getMessages("c").map { it.content })
+        assertEquals(
+            listOf("question", "original", "future"),
+            fixture.repository.getBranchContents(originalBranch),
+        )
+        val versions = fixture.repository.getMessageVersions(answerId)
+        assertEquals(listOf("original", "second answer"), versions.map { it.content })
+        assertEquals("外鍵必須乾淨", emptyList<String>(), foreignKeyViolations(fixture.db))
+        fixture.close()
+    }
+
+    private fun getGenerationContext(db: AppDatabase, versionId: String): GenerationContextEntity? =
+        db.openHelper.readableDatabase
+            .query("SELECT versionId FROM generation_contexts WHERE versionId = ?", arrayOf(versionId))
+            .use { if (it.moveToFirst()) GenerationContextEntity(it.getString(0)) else null }
+
+    private fun foreignKeyViolations(db: AppDatabase): List<String> =
+        db.openHelper.readableDatabase.query("PRAGMA foreign_key_check").use { cursor ->
+            buildList { while (cursor.moveToNext()) add("${cursor.getString(0)}:${cursor.getLong(1)}") }
+        }
 
     private suspend fun request(kind: ChatGenerationKind, target: MessageEntity, repository: ConversationRepository): ChatGenerationRequest {
         val conversation = repository.getConversation("c")!!

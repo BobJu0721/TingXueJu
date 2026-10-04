@@ -5,11 +5,15 @@ import com.aichat.app.data.AppSettings
 import com.aichat.app.data.ConversationRepository
 import com.aichat.app.data.ConversationEntity
 import com.aichat.app.data.GenerationContextEntity
-import com.aichat.app.data.MessageVersionEntity
+import com.aichat.app.data.GenerationRequestFacts
 import com.aichat.app.data.MessageVersionSource
+import com.aichat.app.data.acceptsAiReply
+import com.aichat.app.data.canRegenerate
+import com.aichat.app.data.isModelVisible
 import com.aichat.app.data.MessageVersionStatus
 import com.aichat.app.data.ProfileRepository
 import com.aichat.app.data.WorldInfoRepository
+import com.aichat.app.data.sceneNoteValue
 import com.aichat.app.network.AiApiClient
 import com.aichat.app.network.validateReasoningMode
 import com.aichat.app.pick
@@ -22,6 +26,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
+/**
+ * 串流生成。
+ *
+ * 生成候選時先建立暫存版本與待提交路線並切換過去，畫面因此能預覽串流，而**原路線的資料
+ * 完全不動**。只有正常完成（或停止時已有新增正文）才會提交；失敗、空結果與中斷都會回滾到
+ * 原路線，不會覆寫或刪除任何既有的版本與後續對話。
+ */
 class StreamConversationUseCase(
     private val conversationRepository: ConversationRepository,
     private val profileRepository: ProfileRepository,
@@ -35,18 +46,28 @@ class StreamConversationUseCase(
         onAssistantMessageCreated: (String) -> Unit = {},
         temporarySummary: ConversationEntity? = null,
     ): StreamFinishInfo {
-        val storedConversation = conversationRepository.getConversation(request.conversationId) ?: return StreamFinishInfo()
-        val conversation = temporarySummary?.takeIf { it.id == storedConversation.id } ?: storedConversation
-        validateReasoningMode(settings, conversation.reasoningMode)
-        if (conversation.historyRevision != request.expectedRevision) throw historyChanged(settings)
-        val history = conversationRepository.getMessages(request.conversationId)
-        val target = request.targetMessageId?.let { conversationRepository.getMessage(it) }
+        val snapshot = conversationRepository.getGenerationSnapshot(request.conversationId) ?: return StreamFinishInfo()
+        val stored = snapshot.conversation
+        validateReasoningMode(settings, stored.reasoningMode)
+        if (stored.historyRevision != request.expectedRevision) throw historyChanged(settings)
+        val sourceBranch = snapshot.branch
+        if (request.sourceBranchId != null && sourceBranch.id != request.sourceBranchId) throw historyChanged(settings)
+        val sceneNote = request.sceneNote ?: sourceBranch.sceneNoteValue()
+        val active = snapshot.conversation
+        val conversation = temporarySummary?.takeIf { it.id == active.id } ?: active
+        val history = snapshot.messages
+        val target = request.targetMessageId?.let { id -> history.firstOrNull { it.id == id } }
         if (request.kind != ChatGenerationKind.NEW_REPLY) {
-            if (target == null || target.conversationId != request.conversationId ||
+            if (target == null ||
+                target.deleted ||
                 target.currentVersionId != request.baseVersionId ||
-                (request.kind == ChatGenerationKind.ANSWER_FROM_USER && target.role != "user") ||
-                (request.kind in setOf(ChatGenerationKind.ALTERNATIVE, ChatGenerationKind.CONTINUATION) && target.role != "assistant") ||
-                (request.kind == ChatGenerationKind.CONTINUATION && history.lastOrNull()?.id != target.id)
+                // 只有真正的使用者訊息或作者手寫的故事內容可以「讓 AI 接話」。
+                (request.kind == ChatGenerationKind.ANSWER_FROM_USER && !target.acceptsAiReply) ||
+                // 只有模型生成的回覆能被覆寫或續寫，手寫角色台詞不算 AI 回覆。
+                (request.kind in setOf(ChatGenerationKind.ALTERNATIVE, ChatGenerationKind.CONTINUATION) && !target.canRegenerate) ||
+                // 尾端的私人註記不算故事發言，跳過它才找得到真正的最後一則。
+                (request.kind == ChatGenerationKind.CONTINUATION &&
+                    history.lastOrNull { it.isModelVisible }?.id != target.id)
             ) throw historyChanged(settings)
         }
         if (target?.excluded == true) throw IOException(settings.language.pick(
@@ -68,29 +89,29 @@ class StreamConversationUseCase(
             entries,
             settings.language,
             request,
+            sceneNote,
         )
         val source = when (request.kind) {
             ChatGenerationKind.ALTERNATIVE -> MessageVersionSource.REGENERATED
             ChatGenerationKind.CONTINUATION -> MessageVersionSource.CONTINUATION
             else -> MessageVersionSource.ORIGINAL
         }
-        val existingTarget = target.takeIf { request.kind in setOf(ChatGenerationKind.ALTERNATIVE, ChatGenerationKind.CONTINUATION) }
         val initialContent = if (request.kind == ChatGenerationKind.CONTINUATION) baseVersion?.content.orEmpty() else ""
-        val (assistant, initialDraft) = conversationRepository.createDraft(
-            request.conversationId,
+        val latest = conversationRepository.getConversation(request.conversationId) ?: throw historyChanged(settings)
+        if (latest.historyRevision != request.expectedRevision || latest.activeBranchId != sourceBranch.id) throw historyChanged(settings)
+        var draft = conversationRepository.prepareDraft(
+            GenerationRequestFacts(request.kind, request.conversationId, request.targetMessageId),
             source,
-            target = existingTarget,
-            baseVersion = baseVersion,
-            initialContent = initialContent,
-        )
-        val newMessage = existingTarget == null
+            baseVersion,
+            initialContent,
+        ) ?: throw historyChanged(settings)
+
         val content = StringBuilder(initialContent)
         val addedContent = StringBuilder()
         val reasoningContent = StringBuilder()
         val activatedEntriesJson = toJsonStrings(prompt.activatedEntries.map { it.title })
         val throttle = StreamWriteThrottle(STREAM_WRITE_INTERVAL_NANOS)
         val meter = GenerationMeter()
-        var draft = initialDraft
         var contentDirty = false
         var reasoningDirty = false
         var metricsDirty = false
@@ -99,7 +120,7 @@ class StreamConversationUseCase(
         fun context(): GenerationContextEntity {
             val metrics = meter.snapshot(addedContent.toString(), reasoningContent.toString())
             return GenerationContextEntity(
-                versionId = draft.id,
+                versionId = draft.version.id,
                 activatedWorldEntriesJson = activatedEntriesJson,
                 reasoningContent = reasoningContent.toString(),
                 outputTokenCount = metrics.tokens,
@@ -111,7 +132,7 @@ class StreamConversationUseCase(
         suspend fun flush(force: Boolean = false) {
             if (!contentDirty && !reasoningDirty && !metricsDirty && !force) return
             if (!throttle.shouldWrite(System.nanoTime(), force)) return
-            draft = draft.copy(content = content.toString())
+            draft = draft.copy(version = draft.version.copy(content = content.toString()))
             conversationRepository.updateDraft(draft, context())
             contentDirty = false
             reasoningDirty = false
@@ -120,31 +141,25 @@ class StreamConversationUseCase(
 
         suspend fun commit(status: MessageVersionStatus): Boolean {
             flush(force = true)
-            draft = draft.copy(content = content.toString(), status = status)
-            val cutoff = when (request.kind) {
-                ChatGenerationKind.ANSWER_FROM_USER, ChatGenerationKind.ALTERNATIVE -> target?.sortOrder
-                else -> null
-            }
+            draft = draft.copy(version = draft.version.copy(content = content.toString(), status = status))
             return conversationRepository.commitDraft(
-                assistant.copy(content = draft.content, currentVersionId = draft.id),
                 draft,
+                status,
                 context(),
-                request.expectedRevision,
-                cutoff,
-                temporarySummary,
+                draft.expectedRevision,
+                temporarySummary = temporarySummary?.summary,
+                temporarySummaryThrough = temporarySummary?.summaryThroughOrder ?: 0,
             )
         }
 
+        suspend fun abandon() = withContext(NonCancellable) { conversationRepository.rollbackDraft(draft) }
+
         suspend fun finishCancelledGeneration() = withContext(NonCancellable) {
-            if (addedContent.isBlank()) {
-                conversationRepository.rollbackDraft(draft, newMessage)
-            } else if (!commit(MessageVersionStatus.PARTIAL)) {
-                conversationRepository.rollbackDraft(draft, newMessage)
-            }
+            if (addedContent.isBlank()) abandon() else if (!commit(MessageVersionStatus.PARTIAL)) abandon()
         }
 
         try {
-            onAssistantMessageCreated(assistant.id)
+            onAssistantMessageCreated(draft.message.id)
             api.streamChat(
                 settings = settings,
                 apiKey = key,
@@ -192,7 +207,7 @@ class StreamConversationUseCase(
                 finishCancelledGeneration()
                 throw CancellationException("Generation stopped").apply { initCause(error) }
             }
-            withContext(NonCancellable) { conversationRepository.rollbackDraft(draft, newMessage) }
+            abandon()
             throw error
         }
     }

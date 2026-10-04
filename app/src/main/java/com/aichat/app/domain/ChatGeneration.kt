@@ -6,6 +6,7 @@ import com.aichat.app.data.MessageEntity
 import com.aichat.app.data.Provider
 import com.aichat.app.data.ReplyLengthPreference
 import com.aichat.app.data.TokenLimitField
+import com.aichat.app.data.isModelVisible
 import com.aichat.app.pick
 
 enum class ChatGenerationKind { NEW_REPLY, ANSWER_FROM_USER, ALTERNATIVE, CONTINUATION }
@@ -16,6 +17,8 @@ data class ChatGenerationRequest(
     val targetMessageId: String? = null,
     val baseVersionId: String? = null,
     val expectedRevision: Long,
+    val sourceBranchId: String? = null,
+    val sceneNote: com.aichat.app.data.SceneNote? = null,
 )
 
 data class ChatGenerationOptions(
@@ -46,7 +49,8 @@ object EffectiveHistoryResolver {
         target: MessageEntity? = null,
     ): EffectiveHistory {
         val selected = messages.asSequence()
-            .filter { !it.excluded && it.content.isNotBlank() }
+            // 私人註記、刪除標記與「不提供給 AI」都在這裡排除，後續的掃描深度與保留名額才正確。
+            .filter { it.isModelVisible }
             .filter { message ->
                 when (kind) {
                     ChatGenerationKind.NEW_REPLY -> true

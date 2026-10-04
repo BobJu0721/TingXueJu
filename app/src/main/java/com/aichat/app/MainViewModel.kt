@@ -4,6 +4,7 @@ import com.aichat.app.data.AppLanguage
 import com.aichat.app.data.ConversationEntity
 import com.aichat.app.data.MessageEntity
 import com.aichat.app.data.Provider
+import com.aichat.app.data.isModelVisible
 import com.aichat.app.network.ApiException
 import com.aichat.app.network.UnsupportedReasoningModeException
 import java.io.IOException
@@ -94,7 +95,8 @@ fun conversationSummaryPlan(
     mode: ManualSummaryMode,
 ): ConversationSummaryPlan {
     val keepCount = keepRecentMessages.coerceIn(1, 100)
-    val nonBlank = messages.filter { it.content.isNotBlank() && !it.excluded }.sortedBy { it.stableOrder }
+    // 私人註記不算「保留最近 N 則」的有效對話名額，也不進摘要。
+    val nonBlank = messages.filter { it.isModelVisible }.sortedBy { it.stableOrder }
     val candidates = when (mode) {
         ManualSummaryMode.UN_SUMMARIZED -> nonBlank.filter {
             if (conversation.summaryThroughOrder > 0) it.stableOrder > conversation.summaryThroughOrder

@@ -56,14 +56,19 @@ private const val CHAT_SEARCH_ENABLED = false
 @Composable
 internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack: () -> Unit) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
-    val contexts by viewModel.generationContexts.collectAsStateWithLifecycle()
-    val versions by viewModel.messageVersions.collectAsStateWithLifecycle()
+    val routeSnapshot by viewModel.routeSnapshot.collectAsStateWithLifecycle()
+    // 版本與生成資料取自同一份路線快照，不會和訊息清單分屬不同路線。
+    val versions = routeSnapshot.versions
+    val contexts = routeSnapshot.contexts
     val searchState by viewModel.searchState.collectAsStateWithLifecycle()
     val pendingMutation by viewModel.pendingMutation.collectAsStateWithLifecycle()
+    val activeBranch by viewModel.activeBranch.collectAsStateWithLifecycle()
+    val scrollTarget by viewModel.scrollToMessageId.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val activeAssistantMessageId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
     val streaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val summarizing by viewModel.isSummarizingConversation.collectAsStateWithLifecycle()
+    val draftReply by viewModel.draftReply.collectAsStateWithLifecycle()
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val conversation by viewModel.selectedConversation.collectAsStateWithLifecycle()
     val characters by viewModel.characters.collectAsStateWithLifecycle()
@@ -86,6 +91,11 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
     var searchExpanded by remember(selectedId) { mutableStateOf(false) }
     var searchResultsMenu by remember(selectedId) { mutableStateOf(false) }
     var highlightedMessageId by remember(selectedId) { mutableStateOf<String?>(null) }
+    // 創作入口：旁白、指定角色台詞、私人註記都有獨立編輯視窗，不覆蓋聊天輸入草稿。
+    var narrationDraft by remember(selectedId) { mutableStateOf<String?>(null) }
+    var noteDraft by remember(selectedId) { mutableStateOf<String?>(null) }
+    var authoredDraft by remember(selectedId) { mutableStateOf<AuthoredDraft?>(null) }
+    var authoredEditId by remember(selectedId) { mutableStateOf<String?>(null) }
     val searchActive = CHAT_SEARCH_ENABLED && searchExpanded
     val contextMap = remember(contexts) {
         contexts.associateBy { it.versionId }
@@ -141,6 +151,16 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
             delay(1_200)
             if (highlightedMessageId == id) highlightedMessageId = null
         }
+    }
+    // 切換版本或編輯後定位在被切換的訊息，不要跳到很遠的尾端。
+    LaunchedEffect(scrollTarget, messages) {
+        val id = scrollTarget ?: return@LaunchedEffect
+        val index = messages.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            autoFollow = false
+            listState.animateScrollToItem(index)
+        }
+        viewModel.consumeScrollToMessage()
     }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).onSizeChanged { size ->
         fullChatWidth = maxOf(fullChatWidth, size.width)
@@ -292,14 +312,42 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                     Hairline()
                 }
             },
-            bottomBar = { MessageComposer(viewModel, language) },
+            bottomBar = {
+                MessageComposer(viewModel, language) { kind ->
+                    when (kind) {
+                        MessageKind.NARRATION -> narrationDraft = ""
+                        MessageKind.PRIVATE_NOTE -> noteDraft = ""
+                        else -> authoredDraft = AuthoredDraft(messageId = null, name = "", content = "")
+                    }
+                }
+            },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
+                if (activeBranch?.legacyIncomplete == true) {
+                    Text(
+                        language.pick(
+                            "舊版未保存後續紀錄：這是升級前建立的版本，只到這一則為止。",
+                            "旧版未保存后续记录：这是升级前建立的版本，只到这一则为止。",
+                        ),
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (messages.isEmpty()) EmptyState(language.pick("開始聊天", "开始聊天"), language.pick("輸入訊息，或從角色頁建立帶有開場白的對話。", "输入消息，或从角色页建立带有开场白的对话。"))
                 else LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 10.dp, top = 10.dp, end = 10.dp, bottom = 26.dp),
+                    contentPadding = PaddingValues(
+                        start = 10.dp,
+                        top = if (activeBranch?.legacyIncomplete == true) 46.dp else 10.dp,
+                        end = 10.dp,
+                        bottom = 26.dp,
+                    ),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(messages, key = { it.id }) { message ->
@@ -312,9 +360,9 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                             characterName = characterName,
                             characterSeed = conversation?.characterId ?: "ai",
                             isGenerating = message.id == activeAssistantMessageId,
-                            canContinue = message.role == "assistant" && !message.excluded && message.content.isNotBlank() && message.id == messages.lastOrNull()?.id,
+                            canContinue = message.isAiReply && !message.excluded && message.content.isNotBlank() && message.id == messages.lastOrNull { it.isModelVisible }?.id,
                             highlighted = searchActive && message.id == highlightedMessageId,
-                            historyActionsEnabled = !streaming && !summarizing,
+                            historyActionsEnabled = !streaming && !summarizing && draftReply?.generating != true,
                             actionsVisible = actionMessageId == message.id,
                             onToggleActions = {
                                 actionMessageId = if (actionMessageId == message.id) null else message.id
@@ -325,6 +373,11 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                                 actionMessageId = null
                                 viewModel.requestGenerateAlternative(it)
                             },
+                            onAiReplyFrom = {
+                                actionMessageId = null
+                                viewModel.requestAiReplyFrom(it)
+                            },
+                            onEditAuthored = { authoredEditId = it },
                             onAnswerFrom = viewModel::requestAnswerFrom,
                             onContinue = viewModel::requestContinue,
                             onDelete = viewModel::requestDeleteMessage,
@@ -406,51 +459,245 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
         )
     }
     pendingMutation?.let { pending ->
-        val deleting = pending.kind == MessageMutationKind.DELETE
         AlertDialog(
             onDismissRequest = viewModel::dismissPendingMutation,
             shape = RoundedCornerShape(22.dp),
             containerColor = MaterialTheme.colorScheme.surface,
             title = {
                 Text(
-                    if (deleting) language.pick("刪除這則訊息？", "删除这条消息？")
-                    else language.pick("刪除後續訊息？", "删除后续消息？"),
+                    language.pick("刪除這則訊息？", "删除这条消息？"),
                     fontWeight = FontWeight.Bold,
                 )
             },
             text = {
                 Text(
-                    if (deleting) language.pick(
-                        "將刪除這則訊息及其所有版本與生成資料，其他訊息會保留。",
-                        "将删除这条消息及其所有版本与生成数据，其他消息会保留。",
-                    ) else language.pick(
-                        "此操作將刪除這則訊息之後的 ${pending.followingCount} 則訊息，包含其其他版本。是否繼續？",
-                        "此操作将删除这条消息之后的 ${pending.followingCount} 条消息，包含其其他版本。是否继续？",
+                    language.pick(
+                        "將刪除這則訊息在所有路線中的全部版本及生成資料。其他訊息會保留。",
+                        "将删除这条消息在所有路线中的全部版本及生成数据。其他消息会保留。",
                     ),
                 )
             },
             confirmButton = {
                 Button(
                     onClick = viewModel::confirmPendingMutation,
-                    colors = if (deleting) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors(),
-                ) { Text(if (deleting) language.pick("刪除", "删除") else language.pick("繼續", "继续")) }
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) { Text(language.pick("刪除", "删除")) }
             },
             dismissButton = { TextButton(onClick = viewModel::dismissPendingMutation) { Text(language.pick("取消", "取消")) } },
         )
     }
+    LaunchedEffect(authoredEditId, messages) {
+        val id = authoredEditId ?: return@LaunchedEffect
+        authoredEditId = null
+        val message = messages.firstOrNull { it.id == id } ?: return@LaunchedEffect
+        authoredDraft = AuthoredDraft(id, message.authorName.orEmpty(), message.content)
+    }
+    narrationDraft?.let { draft ->
+        AuthoredEditorDialog(
+            title = language.pick("新增旁白", "新增旁白"),
+            hint = language.pick("以旁白補寫故事事件，例如：三日後，眾人抵達山門。", "以旁白补写故事事件，例如：三日后，众人抵达山门。"),
+            confirmLabel = language.pick("加入紀錄", "加入记录"),
+            language = language,
+            initialContent = draft,
+            onDismiss = { narrationDraft = null },
+            onConfirm = { _, text -> narrationDraft = null; viewModel.appendAuthoredMessage(MessageKind.NARRATION, text) },
+        )
+    }
+    noteDraft?.let { draft ->
+        AuthoredEditorDialog(
+            title = language.pick("新增私人註記", "新增私人注记"),
+            hint = language.pick("只有你自己看得到，不會提供給 AI，例如：後面可以考慮讓掌櫃與使者是舊識。", "只有你自己看得到，不会提供给 AI，例如：后面可以考虑让掌柜与使者是旧识。"),
+            confirmLabel = language.pick("加入紀錄", "加入记录"),
+            language = language,
+            initialContent = draft,
+            onDismiss = { noteDraft = null },
+            onConfirm = { _, text -> noteDraft = null; viewModel.appendAuthoredMessage(MessageKind.PRIVATE_NOTE, text) },
+        )
+    }
+    authoredDraft?.let { draft ->
+        AuthoredEditorDialog(
+            title = if (draft.messageId == null) language.pick("新增角色台詞", "新增角色台词") else language.pick("編輯角色台詞", "编辑角色台词"),
+            hint = language.pick("替某個角色補寫台詞或動作，例如：樓上的房間，今晚不能進去。", "替某个角色补写台词或动作，例如：楼上的房间，今晚不能进去。"),
+            confirmLabel = if (draft.messageId == null) language.pick("加入紀錄", "加入记录") else language.pick("儲存", "保存"),
+            language = language,
+            initialContent = draft.content,
+            initialName = draft.name,
+            characters = characters,
+            onDismiss = { authoredDraft = null },
+            onConfirm = { name, text ->
+                val editing = draft.messageId
+                authoredDraft = null
+                if (editing == null) {
+                    viewModel.appendAuthoredMessage(
+                        MessageKind.AUTHORED_CHARACTER,
+                        text,
+                        authorName = name,
+                        authorCharacterId = characters.firstOrNull { it.name == name }?.id,
+                    )
+                } else {
+                    viewModel.requestEditAuthoredMessage(editing, text, name)
+                }
+            },
+        )
+    }
+    draftReply?.let { state ->
+        DraftReplyDialog(state, language, viewModel::updateDraftInstruction, viewModel::generateDraftReply,
+            viewModel::stopDraftReply, viewModel::closeDraftReply, viewModel::acceptDraftReply,
+            viewModel::dismissDraftReplacement)
+    }
+}
+
+/** 手寫訊息的編輯視窗狀態；`messageId == null` 表示新增。 */
+private data class AuthoredDraft(val messageId: String?, val name: String, val content: String)
+
+/**
+ * 旁白、指定角色台詞與私人註記共用的編輯視窗。
+ *
+ * 有自己的文字狀態，關閉或取消都不會動到聊天輸入框的草稿。
+ */
+@Composable
+private fun AuthoredEditorDialog(
+    title: String,
+    hint: String,
+    confirmLabel: String,
+    language: AppLanguage,
+    initialContent: String,
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, content: String) -> Unit,
+    initialName: String? = null,
+    characters: List<ProfileEntity> = emptyList(),
+) {
+    var content by remember(title) { mutableStateOf(initialContent) }
+    var name by remember(title) { mutableStateOf(initialName.orEmpty()) }
+    val needsName = initialName != null
+    val canConfirm = content.isNotBlank() && (!needsName || name.isNotBlank())
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(22.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = { Text(title, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (needsName) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text(language.pick("發言者", "发言者")) },
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                    if (characters.isNotEmpty()) {
+                        Text(
+                            language.pick("從角色庫選擇（會保存當下的名字）", "从角色库选择（会保存当下的名字）"),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            characters.forEach { character ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (name == character.name) {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                    },
+                                    modifier = Modifier.clickable { name = character.name },
+                                ) {
+                                    Text(character.name, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 4,
+                    maxLines = 10,
+                    placeholder = { Text(hint, fontSize = 13.sp) },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                    ),
+                )
+                Text(
+                    if (needsName) {
+                        language.pick("角色庫改名或刪除都不會改寫既有署名。", "角色库改名或删除都不会改写既有署名。")
+                    } else {
+                        language.pick("只加入紀錄，不會要求 AI 回答。", "只加入记录，不会要求 AI 回答。")
+                    },
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(name.trim(), content.trim()) }, enabled = canConfirm, shape = RoundedCornerShape(14.dp)) {
+                Text(confirmLabel, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(language.pick("取消", "取消"), color = MaterialTheme.colorScheme.onSurfaceVariant) } },
+    )
 }
 
 
 @Composable
-private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage) {
+private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage, onCompose: (MessageKind) -> Unit) {
     val input by viewModel.input.collectAsStateWithLifecycle()
     val streaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    var creativeMenu by remember { mutableStateOf(false) }
     Surface(Modifier.navigationBarsPadding().imePadding(), color = iosBarColor()) {
         Column {
             Hairline()
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                // 創作入口收在具名選單裡，不把全部功能攤開在輸入列上。
+                Box {
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                            .clickable(enabled = !streaming) { creativeMenu = true },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            language.pick("創作", "创作"),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(21.dp),
+                        )
+                    }
+                    DropdownMenu(creativeMenu, { creativeMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(language.pick("旁白", "旁白")) },
+                            onClick = { creativeMenu = false; onCompose(MessageKind.NARRATION) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(language.pick("指定角色台詞", "指定角色台词")) },
+                            onClick = { creativeMenu = false; onCompose(MessageKind.AUTHORED_CHARACTER) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(language.pick("私人註記", "私人注记")) },
+                            onClick = { creativeMenu = false; onCompose(MessageKind.PRIVATE_NOTE) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(language.pick("幫我擬回覆", "帮我拟回复")) },
+                            onClick = { creativeMenu = false; viewModel.openDraftReply() },
+                        )
+                    }
+                }
+                Spacer(Modifier.width(6.dp))
                 OutlinedTextField(
                     input,
                     viewModel::setInput,
@@ -512,6 +759,8 @@ internal fun MessageBubble(
     onEdit: (String, String) -> Unit,
     onSelectVersion: (String, String) -> Unit,
     onGenerateAlternative: (String) -> Unit,
+    onAiReplyFrom: (String) -> Unit,
+    onEditAuthored: (String) -> Unit,
     onAnswerFrom: (String) -> Unit,
     onContinue: (String) -> Unit,
     onDelete: (String) -> Unit,
@@ -526,8 +775,13 @@ internal fun MessageBubble(
     LaunchedEffect(actionsVisible) {
         if (!actionsVisible) moreExpanded = false
     }
-    val user = message.role == "user"
-    val reasoning = if (user) "" else generationContext?.reasoningContent.orEmpty().trim()
+    val kind = message.kind
+    val chatMessage = kind == MessageKind.CHAT
+    val privateNote = kind == MessageKind.PRIVATE_NOTE
+    // 只有一般聊天訊息套用使用者／AI 的對話樣式；手寫內容與私人註記另有卡片。
+    val user = chatMessage && message.role == "user"
+    // 手寫內容不會有、也不該有假造的思考內容或生成統計。
+    val reasoning = if (chatMessage && !user) generationContext?.reasoningContent.orEmpty().trim() else ""
     val worldHits = remember(generationContext) { jsonStrings(generationContext?.activatedWorldEntriesJson.orEmpty()) }
     val currentVersionIndex = versions.indexOfFirst { it.id == message.currentVersionId }.coerceAtLeast(0)
     val currentVersion = versions.getOrNull(currentVersionIndex)
@@ -557,6 +811,32 @@ internal fun MessageBubble(
                           else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
         val bubbleContent: @Composable () -> Unit = {
             Column(Modifier.padding(14.dp)) {
+                // 作者手寫的內容與私人註記都標明身份，不與使用者台詞、AI 回覆混淆。
+                if (!chatMessage) {
+                    Text(
+                        when (kind) {
+                            MessageKind.NARRATION -> language.pick("旁白", "旁白")
+                            MessageKind.AUTHORED_CHARACTER -> language.pick(
+                                "${message.authorName.orEmpty()}・手寫",
+                                "${message.authorName.orEmpty()}・手写",
+                            )
+                            else -> language.pick("私人註記・不提供給 AI", "私人注记・不提供给 AI")
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+                // 使用者明確刪除後留下的結構標記：沒有正文，只是讓其他路線還找得到分岔入口。
+                if (message.deleted) {
+                    Text(
+                        language.pick("訊息已刪除", "消息已删除"),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (user) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.error,
+                    )
+                }
                 if (message.excluded) {
                     Text(
                         language.pick("已排除", "已排除"),
@@ -634,7 +914,26 @@ internal fun MessageBubble(
                 }
             }
         }
-        if (user) {
+        if (!chatMessage) {
+            // 旁白、手寫角色台詞與私人註記：中性卡片，不是對話泡泡。
+            Surface(
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (highlighted) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(14.dp)) else Modifier)
+                    .clickable(enabled = canShowActions, onClick = onToggleActions),
+                shape = RoundedCornerShape(14.dp),
+                color = when {
+                    privateNote && dark -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    privateNote -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    dark -> Color(0xFF2C2C2E)
+                    else -> Color(0xFFEFEFF3)
+                },
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+                border = if (privateNote) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
+            ) { bubbleContent() }
+        } else if (user) {
             Surface(
                 Modifier
                     .fillMaxWidth(0.86f)
@@ -693,21 +992,35 @@ internal fun MessageBubble(
                     }
                     IconButton(
                         enabled = historyActionsEnabled && message.content.isNotBlank(),
-                        onClick = { editing = true },
+                        onClick = { if (kind == MessageKind.AUTHORED_CHARACTER) onEditAuthored(message.id) else editing = true },
                         modifier = Modifier.size(48.dp),
                     ) {
                         Icon(Icons.Default.Edit, language.pick("編輯", "编辑"), Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
                     }
-                    IconButton(
-                        enabled = historyActionsEnabled && !message.excluded && message.content.isNotBlank(),
-                        onClick = {
-                            if (user) onAnswerFrom(message.id) else onGenerateAlternative(message.id)
-                        },
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(Icons.Default.Refresh,
-                            if (user) language.pick("重新發送", "重新发送") else language.pick("生成另一版", "生成另一版"),
-                            Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
+                    // 私人註記沒有「重發／讓 AI 接話／續寫」，不能因誤切開關變成模型輸入。
+                    if (!privateNote) {
+                        IconButton(
+                            enabled = historyActionsEnabled && !message.excluded && message.content.isNotBlank(),
+                            onClick = {
+                                when {
+                                    !chatMessage -> onAiReplyFrom(message.id)
+                                    user -> onAnswerFrom(message.id)
+                                    else -> onGenerateAlternative(message.id)
+                                }
+                            },
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                when {
+                                    !chatMessage -> language.pick("讓 AI 接話", "让 AI 接话")
+                                    user -> language.pick("重新發送", "重新发送")
+                                    else -> language.pick("生成另一版", "生成另一版")
+                                },
+                                Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
                     }
                     Box {
                         IconButton(
@@ -721,7 +1034,7 @@ internal fun MessageBubble(
                             expanded = moreExpanded && actionsVisible && historyActionsEnabled,
                             onDismissRequest = { moreExpanded = false },
                         ) {
-                            if (!user && canContinue) {
+                            if (message.isAiReply && canContinue) {
                                 DropdownMenuItem(
                                     text = { Text(language.pick("續寫", "续写")) },
                                     onClick = { moreExpanded = false; onContinue(message.id) },
@@ -729,11 +1042,14 @@ internal fun MessageBubble(
                                     leadingIcon = { Icon(Icons.Default.Add, null) },
                                 )
                             }
-                            DropdownMenuItem(
-                                text = { Text(if (message.excluded) language.pick("恢復提供給 AI", "恢复提供给 AI") else language.pick("不提供給 AI", "不提供给 AI")) },
-                                onClick = { moreExpanded = false; onToggleExcluded(message.id) },
-                                leadingIcon = { Icon(if (message.excluded) Icons.Default.Visibility else Icons.Default.VisibilityOff, null) },
-                            )
+                            // 私人註記永遠不提供給 AI，因此沒有這個開關。
+                            if (!privateNote) {
+                                DropdownMenuItem(
+                                    text = { Text(if (message.excluded) language.pick("恢復提供給 AI", "恢复提供给 AI") else language.pick("不提供給 AI", "不提供给 AI")) },
+                                    onClick = { moreExpanded = false; onToggleExcluded(message.id) },
+                                    leadingIcon = { Icon(if (message.excluded) Icons.Default.Visibility else Icons.Default.VisibilityOff, null) },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(language.pick("刪除訊息", "删除消息"), color = MaterialTheme.colorScheme.error) },
                                 onClick = { moreExpanded = false; onDelete(message.id) },
@@ -755,7 +1071,7 @@ internal fun MessageBubble(
                         ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, language.pick("下一版本", "下一版本")) }
                     }
                 }
-                if (!user) {
+                if (message.isAiReply) {
                     versionBadgeLabel(currentVersion, language)?.let {
                         Text(it, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                     }
