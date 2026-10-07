@@ -67,6 +67,13 @@
 > [!WARNING]
 > 請只從本專案的 GitHub Releases 下載 APK。解除安裝會刪除 App 的本機資料，重要內容請先自行保存。
 
+### oc 分支測試版（OpenCode Zen 免費通道）
+
+- [下載測試版 APK：TingXueJu-oc-zen-test.apk](releases/TingXueJu-oc-zen-test.apk)
+- 內含 `oc` 分支的 OpenCode Zen 免費通道（匿名 key `public`，免設定即用）。
+- 實測可用：`big-pickle`（chat 路徑）、`muse-spark-1.3-contributor-free`（responses 路徑）。其他模型名單會隨通道狀態輪換，能用才留。
+- 免費通道隨時可能限流、地區拒絕或失效；顯示的錯誤會跟「Key 無效」區分開。
+
 ## 快速開始
 
 1. 安裝並開啟聽雪居。
