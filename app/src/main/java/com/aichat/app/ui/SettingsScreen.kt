@@ -476,8 +476,10 @@ private fun BuiltInEndpointDetail(
     var key by remember(provider) { mutableStateOf("") }
     var accountId by remember(provider, initialCloudflareAccountId) { mutableStateOf(initialCloudflareAccountId) }
     var showKey by remember { mutableStateOf(false) }
+    // Zen 走匿名免費通道，不需要 Keystore key，也不在裝置上存任何金鑰。
+    val keyless = provider == Provider.ZEN
     val cloudflareReady = provider != Provider.CLOUDFLARE || accountId.isNotBlank()
-    val canSave = cloudflareReady && (key.isNotBlank() || (provider == Provider.CLOUDFLARE && hasSavedKey))
+    val canSave = cloudflareReady && (key.isNotBlank() || keyless || (provider == Provider.CLOUDFLARE && hasSavedKey))
     val endpointUrl = if (provider == Provider.CLOUDFLARE) {
         provider.baseUrl.replace("{ACCOUNT_ID}", accountId.trim().ifBlank { "{ACCOUNT_ID}" })
     } else {
@@ -530,7 +532,7 @@ private fun BuiltInEndpointDetail(
                     ) { Text(language.pick("儲存", "保存"), fontWeight = FontWeight.Bold, fontSize = 16.sp) }
                     Button(
                         onClick = { viewModel.saveBuiltInEndpoint(provider, key, accountId, makeActive = true); key = "" },
-                        enabled = cloudflareReady && (key.isNotBlank() || hasSavedKey),
+                        enabled = cloudflareReady && (key.isNotBlank() || keyless || hasSavedKey),
                         modifier = Modifier.weight(1f).heightIn(min = 54.dp),
                         shape = RoundedCornerShape(16.dp),
                     ) { Text(language.pick("設為目前使用", "设为当前使用"), fontWeight = FontWeight.Bold, fontSize = 16.sp) }
@@ -563,6 +565,16 @@ private fun BuiltInEndpointDetail(
                     required = true,
                 )
             }
+            if (provider == Provider.ZEN) {
+                Text(
+                    language.pick(
+                        "免金鑰的匿名免費通道：開啟即用，模型名單與配額由對方決定，隨時可能失效或限流。",
+                        "免金钥的匿名免费通道：开启即用，模型名单与配额由对方决定，随时可能失效或限流。",
+                    ),
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
             EndpointField(
                 label = "API Key",
                 value = key,
@@ -573,6 +585,7 @@ private fun BuiltInEndpointDetail(
                 visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
                 hint = language.pick("金鑰只保存在你的裝置上，介面永不顯示明文。", "金钥只保存在你的装置上，界面永不显示明文。"),
             )
+            }
         }
     }
 }

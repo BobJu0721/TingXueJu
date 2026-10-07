@@ -11,19 +11,22 @@ import java.io.IOException
 /** UI and request validation share this policy. Unknown IDs never inherit a family's controls. */
 internal enum class ReasoningPolicy {
     OPENROUTER_COMPATIBLE, AGNES, GROQ_QWEN_DEFAULT, GROQ_QWEN_MEDIUM,
-    GROQ_GPT_OSS, CEREBRAS_GPT_OSS, CLOUDFLARE_QWEN,
+    GROQ_GPT_OSS, CEREBRAS_GPT_OSS, CLOUDFLARE_QWEN, ZEN,
+    ZEN_RESPONSES,
     MODEL_DEFAULT, NON_REASONING, UNKNOWN;
 
     fun supports(mode: ReasoningMode): Boolean = when (mode) {
         ReasoningMode.AUTO -> true
         ReasoningMode.ON -> this !in setOf(MODEL_DEFAULT, NON_REASONING, UNKNOWN)
-        ReasoningMode.OFF -> this in setOf(OPENROUTER_COMPATIBLE, AGNES, GROQ_QWEN_DEFAULT, GROQ_QWEN_MEDIUM)
+        ReasoningMode.OFF -> this in setOf(OPENROUTER_COMPATIBLE, AGNES, GROQ_QWEN_DEFAULT, GROQ_QWEN_MEDIUM, ZEN, ZEN_RESPONSES)
     }
 
     fun description(language: AppLanguage): String = when (this) {
         GROQ_QWEN_DEFAULT, GROQ_QWEN_MEDIUM -> language.pick("支援開啟與關閉思考。", "支持开启与关闭思考。")
         GROQ_GPT_OSS, CEREBRAS_GPT_OSS -> language.pick("模型持續使用推理，不支援完全關閉。", "模型持续使用推理，不支持完全关闭。")
         CLOUDFLARE_QWEN -> language.pick("支援要求開啟思考；尚未支援關閉，實際回傳由供應商決定。", "支持请求开启思考；尚未支持关闭，实际返回由供应商决定。")
+        ZEN -> language.pick("支援要求開啟或關閉思考；免費通道實際回傳由供應商決定。", "支持请求开启或关闭思考；免费通道实际返回由供应商决定。")
+        ZEN_RESPONSES -> language.pick("支援要求開啟或關閉思考；Responses 模型實際回傳由供應商決定。", "支持请求开启或关闭思考；Responses 模型实际返回由供应商决定。")
         MODEL_DEFAULT -> language.pick("此模型支援推理，目前僅支援自動模式，開關控制尚未確認。", "此模型支持推理，目前仅支持自动模式，开关控制尚未确认。")
         NON_REASONING -> language.pick("此模型不支援思考模式，請使用自動。", "此模型不支持思考模式，请使用自动。")
         UNKNOWN -> language.pick("此模型的思考控制尚未適配，目前僅支援自動。", "此模型的思考控制尚未适配，目前仅支持自动。")
@@ -49,6 +52,11 @@ internal enum class ReasoningPolicy {
             GROQ_GPT_OSS -> payload.put("reasoning_effort", "medium").put("include_reasoning", true)
             CEREBRAS_GPT_OSS -> payload.put("reasoning_effort", "medium").put("reasoning_format", "parsed")
             CLOUDFLARE_QWEN -> payload.put("reasoning_effort", "medium")
+            // Zen 只接受 reasoning_effort（minimal|low|medium|high|xhigh|max|none），其他拼法直接 400。
+            ZEN -> payload.put("reasoning_effort", if (mode == ReasoningMode.OFF) "none" else "medium")
+            // Responses 模型的 effort 由 ResponsesApiClient 按 responses 規格組裝；
+            // chatPayload 不該給它加 completions 形狀的參數，這裡只做開關驗證。
+            ZEN_RESPONSES -> Unit
             else -> Unit
         }
     }
@@ -77,7 +85,30 @@ internal fun reasoningPolicy(provider: Provider, model: String): ReasoningPolicy
         "@cf/meta/llama-3.1-8b-instruct" -> ReasoningPolicy.NON_REASONING
         else -> ReasoningPolicy.UNKNOWN
     }
+    // Zen 白名單只收實測能回的；muse-spark-* 走 /responses，本 App 只打 /chat/completions，直接不用列。
+    Provider.ZEN -> if (isResponsesModel(model)) {
+        if (model in ZEN_VERIFIED_MODELS) ReasoningPolicy.ZEN_RESPONSES else ReasoningPolicy.UNKNOWN
+    } else if (model in ZEN_VERIFIED_MODELS) {
+        ReasoningPolicy.ZEN
+    } else {
+        ReasoningPolicy.UNKNOWN
+    }
 }
+
+/** 模型是否走 Responses API（muse-spark-*）。 */
+internal fun isResponsesModel(model: String): Boolean =
+    model.startsWith("muse-spark", ignoreCase = true)
+
+/** 在 Zen 匿名通道上實際打通過的模型（個人單機驗證；名單會隨通道狀態輪換）。 */
+internal val ZEN_VERIFIED_MODELS = setOf(
+    "deepseek-v4-flash",
+    "glm-5",
+    "glm-5.2",
+    "kimi-k2.6",
+    "qwen3.6-plus",
+    "gpt-5.3-codex",
+    "muse-spark-1.3-contributor-free",
+)
 
 internal fun validateReasoningMode(settings: AppSettings, mode: ReasoningMode) {
     val policy = reasoningPolicy(settings.provider, settings.model)

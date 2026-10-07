@@ -114,7 +114,7 @@ class ProfilesViewModel(private val appContainer: AppContainer) : ViewModel() {
         val type = pending.target.profileType() ?: return
         val current = settings.value
         viewModelScope.launch {
-        val apiKey = secretStore.get(current.provider)
+        val apiKey = secretStore.apiKeyFor(current)
         if (apiKey.isBlank() || current.resolvedBaseUrl.isBlank()) {
             _pendingImport.value = null
             _error.value = UiError(

@@ -61,6 +61,7 @@ private fun mapApiError(error: ApiException, title: String, language: AppLanguag
         kind: ErrorKind = ErrorKind.GENERAL) = UiError(language.pick(traditionalTitle, simplifiedTitle), details,
         language.pick(traditionalHint, simplifiedHint), kind)
     val cloudflare = error.provider == Provider.CLOUDFLARE
+    val zen = error.provider == Provider.ZEN
     return when {
         error.isContextLengthError -> result("上下文過長", "上下文过长", "可裁切舊訊息並重試，或建立新對話。", "可裁切旧消息并重试，或建立新对话。", ErrorKind.CONTEXT_LENGTH)
         error.isReasoningParameterError -> result("模型不接受思考參數", "模型不接受思考参数", "請至模型選擇頁改用自動模式，或選擇支援此設定的模型。", "请至模型选择页改用自动模式，或选择支持此设置的模型。", ErrorKind.MODEL_SELECTION)
@@ -70,12 +71,22 @@ private fun mapApiError(error: ApiException, title: String, language: AppLanguag
         cloudflare && error.internalCode == "5035" -> result("模型需要付費方案", "模型需要付费方案", "此模型需要 Workers Paid 或適用的 AI Gateway 預付額度；也可自行選擇免費方案可用的模型。", "此模型需要 Workers Paid 或适用的 AI Gateway 预付额度；也可自行选择免费方案可用的模型。")
         cloudflare && error.internalCode == "5016" -> result("需要同意模型條款", "需要同意模型条款", "請至 Cloudflare 確認並同意該模型的使用條款後再試。", "请至 Cloudflare 确认并同意该模型的使用条款后再试。")
         cloudflare && error.internalCode in setOf("5018", "3041", "3023") -> result("帳號無法存取模型", "账号无法访问模型", "請檢查帳號的模型存取權限，必要時聯絡 Cloudflare 支援。", "请检查账号的模型访问权限，必要时联系 Cloudflare 支持。")
-        error.statusCode == 403 -> result("權限或方案限制", "权限或方案限制", "請檢查帳號權限、方案與模型是否可用。", "请检查账号权限、方案与模型是否可用。")
+        error.statusCode == 403 -> if (zen) {
+            result("通道拒絕請求", "通道拒绝请求", "免費通道拒絕了這次請求（常見是地區限制），請換節點、換模型，或等通道恢復。這不是 Key 的問題。", "免费通道拒绝了这次请求（常见是地区限制），请换节点、换模型，或等通道恢复。这不是 Key 的问题。")
+        } else {
+            result("權限或方案限制", "权限或方案限制", "請檢查帳號權限、方案與模型是否可用。", "请检查账号权限、方案与模型是否可用。")
+        }
         cloudflare && error.internalCode == "3036" -> result("每日免費額度已用完", "每日免费额度已用完", "請等待每日額度重設，或自行檢查供應商方案。", "请等待每日额度重置，或自行检查供应商方案。")
         cloudflare && error.internalCode == "3040" -> result("供應商容量不足", "供应商容量不足", "目前沒有可用推理容量，請稍後再試。", "目前没有可用推理容量，请稍后再试。")
-        error.statusCode == 429 && (error.internalCode == "insufficient_quota" || error.message.contains("quota", true)) -> result("可用額度不足", "可用额度不足", "請檢查供應商可用額度及重設時間。", "请检查供应商可用额度及重置时间。")
-        error.statusCode == 429 && (error.internalCode == "rate_limit_exceeded" || error.message.contains("rate limit", true)) -> result("請求過快", "请求过快", "請降低請求頻率，等待供應商限制重設後再試。", "请降低请求频率，等待供应商限制重置后再试。")
-        error.statusCode == 429 -> result("額度不足或請求過快", "额度不足或请求过快", "請稍後再試，或檢查供應商額度與限制。", "请稍后再试，或检查供应商额度与限制。")
+        error.statusCode == 429 -> if (zen) {
+            result("免費通道限流", "免费通道限流", "匿名通道按 IP 限流，請換網路節點或稍後再試。", "匿名通道按 IP 限流，请换网络节点或稍后再试。")
+        } else if (error.internalCode == "insufficient_quota" || error.message.contains("quota", true)) {
+            result("可用額度不足", "可用额度不足", "請檢查供應商可用額度及重設時間。", "请检查供应商可用额度及重置时间。")
+        } else if (error.internalCode == "rate_limit_exceeded" || error.message.contains("rate limit", true)) {
+            result("請求過快", "请求过快", "請降低請求頻率，等待供應商限制重設後再試。", "请降低请求频率，等待供应商限制重置后再试。")
+        } else {
+            result("額度不足或請求過快", "额度不足或请求过快", "請稍後再試，或檢查供應商額度與限制。", "请稍后再试，或检查供应商额度与限制。")
+        }
         error.statusCode >= 500 || error.isStreamError -> result("供應商生成失敗", "供应商生成失败", "請保留錯誤詳情與 Request ID，稍後再試或聯絡供應商。", "请保留错误详情与 Request ID，稍后再试或联系供应商。")
         else -> UiError(title, details, language.pick("請檢查模型與供應商設定。", "请检查模型与供应商设置。"))
     }

@@ -1,6 +1,7 @@
 package com.aichat.app.network
 
 import com.aichat.app.data.AppSettings
+import com.aichat.app.data.Provider
 import com.aichat.app.data.ReasoningMode
 import com.aichat.app.data.TokenLimitField
 import com.aichat.app.domain.ChatGenerationOptions
@@ -43,6 +44,13 @@ class AiApiClient(
     @Volatile
     private var activeStreamCall: Call? = null
     private val requestMutex = Mutex()
+    internal val responses: ResponsesApiClient by lazy {
+        ResponsesApiClient(client, requestMutex, ::requestBuilder)
+    }
+
+    /** muse-spark-* 只走 /v1/responses，其他一律走 /chat/completions。 */
+    internal fun usesResponsesApi(settings: AppSettings): Boolean =
+        settings.provider == Provider.ZEN && settings.model.startsWith("muse-spark", ignoreCase = true)
 
     suspend fun listModels(settings: AppSettings, apiKey: String): List<String> =
         requestMutex.withLock { withContext(Dispatchers.IO) {
@@ -69,85 +77,114 @@ class AiApiClient(
         onReasoningToken: suspend (String) -> Unit = {},
         onUsage: suspend (Long) -> Unit = {},
         onFinish: suspend (StreamFinishInfo) -> Unit = {},
-    ) = requestMutex.withLock { withContext(Dispatchers.IO) {
-        val payload = chatPayload(settings, messages, stream = true, reasoningMode = reasoningMode, options = options)
-        val request = requestBuilder(settings, apiKey, "${settings.resolvedBaseUrl}/chat/completions")
-            .post(payload.toString().toRequestBody(JSON))
-            .build()
-        val call = client.newCall(request)
-        activeStreamCall = call
-        try {
-            call.execute().use { response ->
-                if (!response.isSuccessful) {
-                    val body = response.body?.string().orEmpty()
-                    throw response.apiError(settings, body)
-                }
-                val source = response.body?.source() ?: throw IOException("伺服器沒有回傳內容")
-                val thinkTags = ThinkTagStreamParser()
-                var structuredReasoningSeen = false
-                var rawReasoningSeen = false
-
-                suspend fun emitText(text: RoutedStreamText) {
-                    if (text.content.isNotEmpty()) onToken(text.content)
-                    if (!structuredReasoningSeen && text.reasoning.isNotEmpty()) {
-                        rawReasoningSeen = true
-                        onReasoningToken(text.reasoning)
-                    }
-                }
-
-                while (!source.exhausted()) {
-                    coroutineContext.ensureActive()
-                    val line = source.readUtf8Line() ?: break
-                    if (!line.startsWith("data:")) continue
-                    val data = line.removePrefix("data:").trim()
-                    if (data == "[DONE]") break
-                    val delta = parseStreamDelta(data, settings, response.requestId())
-                    delta.finishReason?.let { onFinish(StreamFinishInfo(it)) }
-                    parseCompletionTokens(data)?.let { onUsage(it) }
-                    if (delta.reasoningContent.isNotEmpty() && !rawReasoningSeen) {
-                        structuredReasoningSeen = true
-                        onReasoningToken(delta.reasoningContent)
-                    }
-                    if (delta.content.isNotEmpty()) {
-                        emitText(thinkTags.accept(delta.content))
-                    }
-                }
-                emitText(thinkTags.finish())
-            }
-        } finally {
-            activeStreamCall = null
+    ) {
+        if (usesResponsesApi(settings)) {
+            responses.stream(settings, apiKey, messages, reasoningMode, options,
+                firstUserText = messages.firstOrNull { it.role == "user" }?.content,
+                onToken = onToken, onReasoningToken = onReasoningToken, onUsage = onUsage, onFinish = onFinish)
+            return
         }
-    } }
+        requestMutex.withLock { withContext(Dispatchers.IO) {
+            val payload = chatPayload(settings, messages, stream = true, reasoningMode = reasoningMode, options = options)
+            val request = requestBuilder(settings, apiKey, "${settings.resolvedBaseUrl}/chat/completions",
+                firstUserText = messages.firstOrNull { it.role == "user" }?.content)
+                .post(payload.toString().toRequestBody(JSON))
+                .build()
+            val call = client.newCall(request)
+            activeStreamCall = call
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val body = response.body?.string().orEmpty()
+                        throw response.apiError(settings, body)
+                    }
+                    val source = response.body?.source() ?: throw IOException("伺服器沒有回傳內容")
+                    val thinkTags = ThinkTagStreamParser()
+                    var structuredReasoningSeen = false
+                    var rawReasoningSeen = false
+
+                    suspend fun emitText(text: RoutedStreamText) {
+                        if (text.content.isNotEmpty()) onToken(text.content)
+                        if (!structuredReasoningSeen && text.reasoning.isNotEmpty()) {
+                            rawReasoningSeen = true
+                            onReasoningToken(text.reasoning)
+                        }
+                    }
+
+                    while (!source.exhausted()) {
+                        coroutineContext.ensureActive()
+                        val line = source.readUtf8Line() ?: break
+                        if (!line.startsWith("data:")) continue
+                        val data = line.removePrefix("data:").trim()
+                        if (data == "[DONE]") break
+                        val delta = parseStreamDelta(data, settings, response.requestId())
+                        delta.finishReason?.let { onFinish(StreamFinishInfo(it)) }
+                        parseCompletionTokens(data)?.let { onUsage(it) }
+                        if (delta.reasoningContent.isNotEmpty() && !rawReasoningSeen) {
+                            structuredReasoningSeen = true
+                            onReasoningToken(delta.reasoningContent)
+                        }
+                        if (delta.content.isNotEmpty()) {
+                            emitText(thinkTags.accept(delta.content))
+                        }
+                    }
+                    emitText(thinkTags.finish())
+                }
+            } finally {
+                activeStreamCall = null
+            }
+        } }
+    }
 
     suspend fun completeChat(
         settings: AppSettings,
         apiKey: String,
         messages: List<ApiChatMessage>,
-    ): String = requestMutex.withLock { withContext(Dispatchers.IO) {
-        val payload = chatPayload(settings, messages, stream = false)
-        val request = requestBuilder(settings, apiKey, "${settings.resolvedBaseUrl}/chat/completions")
-            .post(payload.toString().toRequestBody(JSON))
-            .build()
-        val call = client.newCall(request)
-        call.execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw response.apiError(settings, body)
-            JSONObject(body)
-                .optJSONArray("choices")
-                ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content")
-                .orEmpty()
-                .withoutLeadingThinkBlock()
+    ): String {
+        // Zen 匿名通道只接受 stream 形狀的 body；completeChat 在 ZEN 下改走同一條串流再拼起來。
+        if (settings.provider == Provider.ZEN) {
+            val collected = StringBuilder()
+            streamChat(settings, apiKey, messages, ReasoningMode.AUTO, options = null, onToken = {
+                collected.append(it)
+            })
+            return collected.toString().withoutLeadingThinkBlock()
                 .ifBlank { throw IOException("API 沒有回傳文字內容。") }
         }
-    } }
+        return requestMutex.withLock { withContext(Dispatchers.IO) {
+            val payload = chatPayload(settings, messages, stream = false)
+            val request = requestBuilder(
+                settings, apiKey, "${settings.resolvedBaseUrl}/chat/completions",
+                firstUserText = messages.firstOrNull { it.role == "user" }?.content,
+            )
+                .post(payload.toString().toRequestBody(JSON))
+                .build()
+            val call = client.newCall(request)
+            call.execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw response.apiError(settings, body)
+                JSONObject(body)
+                    .optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("message")
+                    ?.optString("content")
+                    .orEmpty()
+                    .withoutLeadingThinkBlock()
+                    .ifBlank { throw IOException("API 沒有回傳文字內容。") }
+            }
+        } }
+    }
 
     fun cancelActive() {
         activeStreamCall?.cancel()
+        responses.cancelActive()
     }
 
-    private fun requestBuilder(settings: AppSettings, apiKey: String, url: String): Request.Builder =
+    internal fun requestBuilder(
+        settings: AppSettings,
+        apiKey: String,
+        url: String,
+        firstUserText: String? = null,
+    ): Request.Builder =
         Request.Builder()
             .url(url)
             .header("Authorization", "Bearer $apiKey")
@@ -155,6 +192,9 @@ class AiApiClient(
             .apply {
                 if (settings.provider.name == "OPENROUTER") {
                     header("X-Title", "AI Chat Android")
+                }
+                if (settings.provider == Provider.ZEN) {
+                    ZenDisguise.headers(firstUserText).forEach { (name, value) -> header(name, value) }
                 }
             }
 
@@ -172,6 +212,15 @@ class AiApiClient(
                 put(JSONObject().put("role", message.role).put("content", message.content))
             }
         })
+        .apply {
+            if (settings.provider == Provider.ZEN) {
+                put("tools", JSONArray().apply {
+                    put(ZenDisguise.gateTool("bash"))
+                    put(ZenDisguise.gateTool("read"))
+                })
+                put("tool_choice", "none")
+            }
+        }
         .apply {
             applyReasoning(settings, reasoningMode)
             applyGenerationOptions(settings, options)

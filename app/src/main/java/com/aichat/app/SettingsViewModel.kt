@@ -127,7 +127,7 @@ class SettingsViewModel(appContainer: AppContainer) : ViewModel() {
         if (_isLoadingModels.value) return
         viewModelScope.launch {
             val current = settings.value
-            val key = secretStore.get(current.provider)
+            val key = secretStore.apiKeyFor(current)
             if (key.isBlank()) {
                 _error.value = UiError(
                     current.language.pick("缺少 API Key", "缺少 API Key"),

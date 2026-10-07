@@ -217,7 +217,7 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         _draftReply.value = state.copy(content = "", generating = true, incomplete = false, error = null, replacementInput = null)
         draftJob = viewModelScope.launch {
             try {
-                val key = secretStore.get(current.provider)
+                val key = secretStore.apiKeyFor(current)
                 if (key.isBlank() || current.resolvedBaseUrl.isBlank()) {
                     _draftReply.value = _draftReply.value?.copy(
                         generating = false,
@@ -787,7 +787,7 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
             sourceBranchId = source.id, sceneNote = source.sceneNoteValue(),
         ) else request
         val current = settings.value
-        val key = secretStore.get(current.provider)
+        val key = secretStore.apiKeyFor(current)
         if (key.isBlank() || current.resolvedBaseUrl.isBlank()) {
             _error.value = UiError(
                 current.language.pick("缺少 API 設定", "缺少 API 设置"),
@@ -857,7 +857,7 @@ class ChatViewModel(private val appContainer: AppContainer) : ViewModel() {
         _isSummarizingConversation.value = true
         viewModelScope.launch {
             try {
-                val key = secretStore.get(current.provider)
+                val key = secretStore.apiKeyFor(current)
                 if (key.isBlank() || current.resolvedBaseUrl.isBlank()) {
                     _error.value = UiError(
                         current.language.pick("缺少 API 設定", "缺少 API 设置"),

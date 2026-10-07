@@ -21,6 +21,10 @@ class SecretStore(context: Context) {
 
     suspend fun get(provider: Provider): String = get(providerStorageKey(provider))
 
+    /** ZEN goes out on the public anonymous constant; everything else reads the Keystore. */
+    suspend fun apiKeyFor(settings: AppSettings): String =
+        if (settings.provider == Provider.ZEN) ZEN_ANONYMOUS_KEY else get(settings.provider)
+
     suspend fun putCustomEndpointPreset(id: String, apiKey: String) = put(customEndpointStorageKey(id), apiKey)
 
     suspend fun getCustomEndpointPreset(id: String): String = get(customEndpointStorageKey(id))

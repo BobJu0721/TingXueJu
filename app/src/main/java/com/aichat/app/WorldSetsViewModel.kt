@@ -192,7 +192,7 @@ class WorldSetsViewModel(private val appContainer: AppContainer) : ViewModel() {
         if (pending.target != ImportTarget.WORLD_SET) return
         val current = settings.value
         viewModelScope.launch {
-        val apiKey = secretStore.get(current.provider)
+        val apiKey = secretStore.apiKeyFor(current)
         if (apiKey.isBlank() || current.resolvedBaseUrl.isBlank()) {
             _pendingImport.value = null
             _error.value = UiError(

@@ -7,6 +7,9 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+/** OpenCode Zen anonymous lane credential: a public, documented constant — not a stored secret. */
+const val ZEN_ANONYMOUS_KEY = "public"
+
 enum class Provider(
     val label: String,
     val baseUrl: String,
@@ -21,6 +24,7 @@ enum class Provider(
         "https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1",
         "@cf/meta/llama-3.1-8b-instruct",
     ),
+    ZEN("OpenCode Zen（免費通道）", "https://opencode.ai/zen/v1", "deepseek-v4-flash"),
     CUSTOM("自訂端點", "", "");
 
     companion object {

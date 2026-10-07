@@ -87,6 +87,11 @@ class ErrorMappingTest {
         val lang = AppLanguage.SIMPLIFIED_CHINESE
         assertEquals("账务或额度限制", mapError(ApiException(402, "billing"), "失败", lang).title)
         assertEquals("模型需要付费方案", mapError(ApiException(403, "paid", Provider.CLOUDFLARE, "5035"), "失败", lang).title)
+        assertEquals("通道拒绝请求", mapError(ApiException(403, "FreeTierError", Provider.ZEN), "失败", lang).title)
+        assertEquals("免费通道限流", mapError(ApiException(429, "rate limited", Provider.ZEN), "失败", lang).title)
+        // 同一個 403/429，ZEN 以外的供應商維持原分類。
+        assertEquals("权限或方案限制", mapError(ApiException(403, "denied"), "失败", lang).title)
+        assertEquals("额度不足或请求过快", mapError(ApiException(429, "slow down"), "失败", lang).title)
         val stream = mapError(ApiException(200, "upstream broke", isStreamError = true), "失败", lang)
         assertEquals("供应商生成失败", stream.title)
         assertTrue(stream.message.contains("串流返回错误（HTTP 200）"))
