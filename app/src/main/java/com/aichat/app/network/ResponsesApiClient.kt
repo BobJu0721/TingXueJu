@@ -245,5 +245,5 @@ internal class ResponsesApiClient(
 /** prompt_cache_key 跟 session 派生用同一個種子，跨輪保持快取親和性。 */
 internal object ZenCacheKey {
     fun forRequest(firstUserText: String?): String =
-        ZenDisguise.headers(firstUserText)["x-opencode-session"].orEmpty()
+        ZenDisguise.sessionFor(firstUserText)
 }

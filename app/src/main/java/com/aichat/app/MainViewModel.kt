@@ -63,6 +63,10 @@ private fun mapApiError(error: ApiException, title: String, language: AppLanguag
     val cloudflare = error.provider == Provider.CLOUDFLARE
     val zen = error.provider == Provider.ZEN
     return when {
+        // 免費通道限制走在所有 401/403 之前：保留上游原始訊息，絕不能說成 Key 無效。
+        error.isFreeTierRestricted -> result("免費通道被拒絕", "免费通道被拒绝",
+            "上游回覆：${error.message}\n請確認 App 已更新到最新的 session 規則；若剛更新過仍被拒，是通道端限制，等通道恢復或換模型。",
+            "上游回复：${error.message}\n请确认 App 已更新到最新的 session 规则；若刚更新过仍被拒，是通道端限制，等通道恢复或换模型。")
         error.isContextLengthError -> result("上下文過長", "上下文过长", "可裁切舊訊息並重試，或建立新對話。", "可裁切旧消息并重试，或建立新对话。", ErrorKind.CONTEXT_LENGTH)
         error.isReasoningParameterError -> result("模型不接受思考參數", "模型不接受思考参数", "請至模型選擇頁改用自動模式，或選擇支援此設定的模型。", "请至模型选择页改用自动模式，或选择支持此设置的模型。", ErrorKind.MODEL_SELECTION)
         error.isTokenLimitParameterError -> result("模型不接受 Token 上限參數", "模型不接受 Token 上限参数", "請至對話資訊修改最大輸出 Token 或參數欄位。", "请至对话信息修改最大输出 Token 或参数字段。", ErrorKind.CHAT_OPTIONS)

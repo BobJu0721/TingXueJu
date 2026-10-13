@@ -34,6 +34,14 @@ class ApiException(
                 (text.contains("context") && listOf("exceed", "too long", "too large").any(text::contains))
         }
 
+    /** 免費通道限制（opencode2dsh #62）：session 派生錯誤或通道拒絕，絕不能誤判成 Key 無效。 */
+    val isFreeTierRestricted: Boolean
+        get() = statusCode == 403 && (
+            internalCode?.contains("freetier", ignoreCase = true) == true ||
+                message.contains("FreeTierError", ignoreCase = true) ||
+                message.contains("free tier can only be used from within OpenCode", ignoreCase = true)
+            )
+
     companion object {
         internal fun fromBody(
             statusCode: Int,

@@ -87,7 +87,9 @@ class ErrorMappingTest {
         val lang = AppLanguage.SIMPLIFIED_CHINESE
         assertEquals("账务或额度限制", mapError(ApiException(402, "billing"), "失败", lang).title)
         assertEquals("模型需要付费方案", mapError(ApiException(403, "paid", Provider.CLOUDFLARE, "5035"), "失败", lang).title)
-        assertEquals("通道拒绝请求", mapError(ApiException(403, "FreeTierError", Provider.ZEN), "失败", lang).title)
+        // FreeTierError 走獨立分類，保留上游原始訊息，絕不能說成 Key 無效。
+        assertEquals("免费通道被拒绝", mapError(ApiException(403, "FreeTierError", Provider.ZEN), "失败", lang).title)
+        assertEquals("通道拒绝请求", mapError(ApiException(403, "denied", Provider.ZEN), "失败", lang).title)
         assertEquals("免费通道限流", mapError(ApiException(429, "rate limited", Provider.ZEN), "失败", lang).title)
         // 同一個 403/429，ZEN 以外的供應商維持原分類。
         assertEquals("权限或方案限制", mapError(ApiException(403, "denied"), "失败", lang).title)

@@ -3,6 +3,7 @@ package com.aichat.app.network
 import com.aichat.app.data.AppSettings
 import com.aichat.app.data.Provider
 import com.aichat.app.data.ReasoningMode
+import com.aichat.app.mapError
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.sync.Mutex
 import org.json.JSONObject
@@ -131,5 +132,56 @@ class ResponsesApiClientTest {
         )
         assertEquals("Generating a friendly greeting response without tool calls.", summary.reasoning)
         assertEquals("", summary.content)
+    }
+
+    @Test fun invertedTimestampHexMatchesUpstreamEncoder() {
+        // 上游 identifier.ts 的官方公式：~(now*0x1000+1) 取低 48 bits。
+        fun upstream(now: Long): String {
+            val current = now.toBigInteger().shiftLeft(12).add(java.math.BigInteger.ONE)
+            val mask = java.math.BigInteger.ONE.shiftLeft(48).subtract(java.math.BigInteger.ONE)
+            return current.not().and(mask).toString(16).padStart(12, '0')
+        }
+        for (clock in listOf(0L, 1L, 1_000_000_000_000L, 1_791_884_044_070L, System.currentTimeMillis())) {
+            assertEquals(upstream(clock), ZenDisguise.invertedTimestampHex(clock))
+            // counter 固定 1，反轉後末三位恆為 ffe。
+            assertEquals("ffe", ZenDisguise.invertedTimestampHex(clock).takeLast(3))
+        }
+    }
+
+    @Test fun sessionCounterRuleAcceptsOneAndRejectsDigest() {
+        // #68 實測規則：counter = ~hex & 0xfff，接受當且僅當 0～63。
+        assertEquals(1L, ZenDisguise.acceptedCounter(ZenDisguise.invertedTimestampHex()))
+        assertTrue(ZenDisguise.isAcceptedSession(ZenDisguise.sessionFor("some conversation")))
+        // 舊雜湊前綴：格式對，但 counter 幾乎一定落在外面。
+        var rejected = 0
+        for (i in 0 until 50) {
+            val seed = byteArrayOf(0x73, 0x65, 0x73, 0x00) + "probe-$i".toByteArray()
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(seed).take(6).joinToString("") { "%02x".format(it) }
+            if (!ZenDisguise.isAcceptedSession("ses_${digest}0ySUUEO3741Ult")) rejected++
+        }
+        assertTrue("digest sessions should mostly be rejected, rejected=$rejected", rejected >= 45)
+    }
+
+    @Test fun sessionIsStablePerConversationAndDistinctAcross() {
+        val first = ZenDisguise.sessionFor("conversation A")
+        assertEquals(first, ZenDisguise.sessionFor("conversation A"))
+        val other = ZenDisguise.sessionFor("conversation B")
+        assertTrue(first != other)
+        // Base62 尾巴不同，對話不會相撞。
+        assertTrue(first.takeLast(14) != other.takeLast(14))
+    }
+
+    @Test fun freeTierErrorIsClassifiedBeforeKeyErrors() {
+        val freeTier = ApiException.fromBody(403,
+            """{"error":{"type":"FreeTierError","message":"free tier can only be used from within OpenCode"}}""",
+            Provider.ZEN)
+        assertTrue(freeTier.isFreeTierRestricted)
+        val mapped = mapError(freeTier, "失敗", com.aichat.app.data.AppLanguage.TRADITIONAL_CHINESE)
+        assertEquals("免費通道被拒絕", mapped.title)
+        assertTrue(mapped.message.contains("free tier can only be used from within OpenCode"))
+        // 一般 403 不受影響。
+        val plain = ApiException.fromBody(403, "denied", Provider.ZEN)
+        assertTrue(!plain.isFreeTierRestricted)
     }
 }
