@@ -22,6 +22,8 @@ class ResponsesApiClientTest {
     }
 
     @Test fun payloadMatchesPiAiResponsesShape() {
+        // 基底已改為 /inference/v1（#74）：對話、模型列表與探測都跟著走。
+        assertEquals("https://opencode.ai/inference/v1", Provider.ZEN.baseUrl)
         val body = client().responsesPayload(settings, messages, ReasoningMode.ON, null, "hi")
         assertEquals("muse-spark-1.3-contributor-free", body.getString("model"))
         assertTrue(body.getBoolean("stream"))
@@ -183,5 +185,31 @@ class ResponsesApiClientTest {
         // 一般 403 不受影響。
         val plain = ApiException.fromBody(403, "denied", Provider.ZEN)
         assertTrue(!plain.isFreeTierRestricted)
+    }
+
+    @Test fun wireHeadersOmitLegacySyntheticHeaders() {
+        // #74：舊合成標頭任一存在即 403，兩者都不送才 200。
+        val headers = ZenDisguise.headers("wire regression probe")
+        val session = headers["x-opencode-session"].orEmpty()
+        assertTrue(session.matches(Regex("^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$")))
+        assertEquals(session, headers["x-opencode-session-id"])
+        assertEquals(session, headers["x-session-affinity"])
+        assertEquals(session, headers["X-Session-Id"])
+        assertFalse(headers.containsKey("x-opencode-request"))
+        assertFalse(headers.containsKey("x-opencode-project"))
+    }
+
+    @Test fun gateToolsCarryNonEmptyProperties() {
+        // #74：空 parameters.properties 會被拒；補可選字串欄位。
+        for (tool in listOf(ZenDisguise.gateTool("bash"), ZenDisguise.responsesGateTool("read"))) {
+            val params = tool.optJSONObject("function")?.optJSONObject("parameters")
+                ?: tool.optJSONObject("parameters")!!
+            assertTrue(params.optJSONObject("properties")!!.keys().asSequence().toList().isNotEmpty())
+        }
+        // 真實工具的非空 schema 原樣保留。
+        val real = JSONObject().put("type", "object").put("properties",
+            JSONObject().put("command", JSONObject().put("type", "string")))
+        assertTrue(ZenDisguise.gateParameters(real) === real)
+        assertEquals(1, ZenDisguise.gateParameters(real).optJSONObject("properties")!!.length())
     }
 }

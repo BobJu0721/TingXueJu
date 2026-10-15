@@ -24,8 +24,12 @@ internal object ZenDisguise {
     private val sessionMemo = LinkedHashMap<String, String>()
 
     /**
-     * 跟一次請求綁定的 header 組。session 同一對話只生成一次並快取，
-     * request 每次全新隨機。
+     * 跟一次請求綁定的 header 組。session 同一對話只生成一次並快取。
+     *
+     * 上游實測（opencode2dsh #72/#74）：舊的合成標頭 x-opencode-request /
+     * x-opencode-project 任一存在即 403 FreeTierError，兩者都不送才 200。
+     * 只保留官方的 session 親和標頭；x-opencode-session-id 與
+     * x-opencode-session 同值。
      */
     @Synchronized
     fun headers(firstUserText: String?): Map<String, String> {
@@ -40,15 +44,13 @@ internal object ZenDisguise {
                 sessionMemo[signal] = fresh
             }
         }
-        val request = "req_${UUID.randomUUID().toString().replace("-", "").take(32)}"
         return mapOf(
             "User-Agent" to USER_AGENT,
             "x-opencode-client" to "cli",
             "x-opencode-session" to session,
+            "x-opencode-session-id" to session,
             "x-session-affinity" to session,
             "X-Session-Id" to session,
-            "x-opencode-request" to request,
-            "x-opencode-project" to "prj_opencode2dsh_default",
         )
     }
 
@@ -57,20 +59,42 @@ internal object ZenDisguise {
     fun sessionFor(firstUserText: String?): String =
         headers(firstUserText)["x-opencode-session"].orEmpty()
 
-    /** body 形狀門用的佔位 tool；配合 tool_choice=none，模型不會真的呼叫。 */
+    /**
+     * body 形狀門用的佔位 tool；配合 tool_choice=none，模型不會真的呼叫。
+     *
+     * 上游實測（#74）：空 parameters.properties 會被拒；補一個可選字串欄位。
+     * 真實工具的非空 schema 不動（見 withGateParameters 的保留邏輯）。
+     */
     fun gateTool(name: String): JSONObject = JSONObject()
         .put("type", "function")
         .put("function", JSONObject()
             .put("name", name)
             .put("description", "Reserved for the host runtime; do not call it.")
-            .put("parameters", JSONObject().put("type", "object").put("properties", JSONObject())))
+            .put("parameters", gateParameters()))
 
     /** Responses 專用：扁平 function tool，沒有 function 包裝層，配合 tool_choice=auto。 */
     fun responsesGateTool(name: String): JSONObject = JSONObject()
         .put("type", "function")
         .put("name", name)
         .put("description", "Reserved for the host runtime; do not call it.")
-        .put("parameters", JSONObject().put("type", "object").put("properties", JSONObject()))
+        .put("parameters", gateParameters())
+
+    /** 空佔位 schema 補一個可選字串欄位；非空的真實 schema 原樣保留。 */
+    fun gateParameters(existing: JSONObject? = null): JSONObject {
+        val properties = existing?.optJSONObject("properties")
+        if (properties != null && properties.keys().asSequence().toList().isNotEmpty()) {
+            return existing!!
+        }
+        val base = JSONObject()
+        existing?.keys()?.asSequence()?.toList()?.forEach { key ->
+            if (key != "properties") base.put(key, existing.get(key))
+        }
+        return base
+            .put("type", "object")
+            .put("properties", JSONObject().put("input", JSONObject()
+                .put("type", "string")
+                .put("description", "Reserved for the host runtime; do not call this placeholder tool.")))
+    }
 
     private fun newSession(seed: String): String {
         val prefixed = byteArrayOf(0x73, 0x65, 0x73, 0x00) + seed.toByteArray()

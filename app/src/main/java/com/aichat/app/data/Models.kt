@@ -24,7 +24,7 @@ enum class Provider(
         "https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1",
         "@cf/meta/llama-3.1-8b-instruct",
     ),
-    ZEN("OpenCode Zen（免費通道）", "https://opencode.ai/zen/v1", "deepseek-v4-flash"),
+    ZEN("OpenCode Zen（免費通道）", "https://opencode.ai/inference/v1", "deepseek-v4-flash"),
     CUSTOM("自訂端點", "", "");
 
     companion object {
@@ -308,6 +308,8 @@ data class RouteRows(
     val messages: List<RouteMessageRow>,
     val versions: List<MessageVersionEntity>,
     val contexts: List<GenerationContextEntity>,
+    val conversationId: String? = null,
+    val branchId: String? = null,
 )
 
 /** 攤平後、可直接交給上層使用的路線快照。 */
@@ -315,6 +317,8 @@ data class RouteSnapshot(
     val messages: List<MessageEntity> = emptyList(),
     val versions: List<MessageVersionEntity> = emptyList(),
     val contexts: List<GenerationContextEntity> = emptyList(),
+    val conversationId: String? = null,
+    val branchId: String? = null,
 )
 /**
  * 目前路線的一則訊息：訊息本身加上該路線選定的版本、順序與排除狀態。
