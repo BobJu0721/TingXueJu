@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import com.aichat.app.data.AppDatabase
 import com.aichat.app.data.ConversationRepository
 import com.aichat.app.data.ProfileRepository
@@ -58,6 +59,11 @@ class AppContainer(
 }
 
 class AppViewModelFactory(private val appContainer: AppContainer) : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>, extras: androidx.lifecycle.viewmodel.CreationExtras): T {
+        return if (modelClass.isAssignableFrom(ChatViewModel::class.java))
+            ChatViewModel(appContainer, extras.createSavedStateHandle()) as T else create(modelClass)
+    }
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T = when {
         modelClass.isAssignableFrom(ChatViewModel::class.java) -> ChatViewModel(appContainer)

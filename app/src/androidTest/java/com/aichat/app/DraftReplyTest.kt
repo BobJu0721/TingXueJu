@@ -83,7 +83,7 @@ class DraftReplyTest {
         repo.appendAuthoredMessage("c", MessageKind.NARRATION, "three days later")
         repo.appendAuthoredMessage("c", MessageKind.AUTHORED_CHARACTER, "do not enter", "keeper")
         val branch = repo.getActiveBranch("c")!!
-        repo.saveChatInfo("c", branch.id, SceneNote("海邊場景", true), ReplyLengthPreference.DEFAULT, null, TokenLimitField.AUTO)
+        repo.getChatSettings("c")!!.let { repo.saveStorySettings(it, it.story.copy(sceneNote = SceneNote("海邊場景", true))) }
         db.chatDao().upsertWorldSet(WorldSetEntity("w", "world", createdAt = 1, updatedAt = 1, overview = "world overview"))
         db.chatDao().upsertWorldEntry(WorldEntryEntity("e", "w", "private lore", "[\"secret_trigger\"]", "must not activate"))
         repo.replaceConversationWorldSets("c", listOf(ConversationWorldSetEntity("c", "w")))
@@ -166,7 +166,7 @@ class DraftReplyTest {
         val first = repo.getMessages("c").first()
         repo.addEditedVersion("c", first.id, "sea", repo.getConversation("c")!!.historyRevision)
         val branch = repo.getActiveBranch("c")!!
-        repo.saveChatInfo("c", branch.id, SceneNote("sea direction", true), ReplyLengthPreference.DEFAULT, null, TokenLimitField.AUTO)
+        repo.getChatSettings("c")!!.let { repo.saveStorySettings(it, it.story.copy(sceneNote = SceneNote("sea direction", true))) }
         vm.acceptDraftReply()
         await { vm.draftReply.value?.error != null }
         assertEquals("original", vm.input.value)

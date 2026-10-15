@@ -47,6 +47,8 @@ class ConversationRepository(private val dao: ChatDao) {
                 messages = rows.messages.map(RouteMessageRow::resolved),
                 versions = rows.versions,
                 contexts = rows.contexts,
+                conversationId = rows.conversationId,
+                branchId = rows.branchId,
             )
         }
 
@@ -56,6 +58,8 @@ class ConversationRepository(private val dao: ChatDao) {
             messages = rows.messages.map(RouteMessageRow::resolved),
             versions = rows.versions,
             contexts = rows.contexts,
+            conversationId = rows.conversationId,
+            branchId = rows.branchId,
         )
     }
 
@@ -121,16 +125,12 @@ class ConversationRepository(private val dao: ChatDao) {
 
     suspend fun getGenerationSnapshot(conversationId: String): GenerationSnapshot? = dao.getGenerationSnapshot(conversationId)
 
-    suspend fun saveChatInfo(
-        conversationId: String,
-        branchId: String,
-        note: SceneNote,
-        preference: ReplyLengthPreference,
-        maxTokens: Int?,
-        field: TokenLimitField,
-    ): Boolean {
-        require(maxTokens == null || maxTokens > 0)
-        return dao.saveChatInfo(conversationId, branchId, note, preference, maxTokens, field)
+    suspend fun getChatSettings(id: String) = dao.getChatSettings(id)
+    suspend fun saveStorySettings(expected: ChatSettingsSnapshot, draft: StorySettings) = dao.saveStorySettings(expected, draft)
+    suspend fun saveReplySettings(expected: ChatSettingsSnapshot, draft: ReplySettings) = dao.saveReplySettings(expected, draft)
+    suspend fun replaceBackground(id: String, path: String) = dao.replaceBackground(id, path)
+    suspend fun setBubbleOpacity(id: String, opacity: Float) {
+        check(dao.setBubbleOpacity(id, opacity.coerceIn(0.35f, 1f)) == 1) { "聊天室已不存在 / 聊天室已不存在" }
     }
 
     suspend fun getBranches(conversationId: String): List<ConversationBranchEntity> = dao.getBranches(conversationId)
@@ -487,6 +487,9 @@ class ConversationRepository(private val dao: ChatDao) {
 
     suspend fun updateBranchSummary(branchId: String, summary: String, summaryThroughOrder: Long) =
         dao.setBranchSummary(branchId, summary, summaryThroughOrder)
+
+    suspend fun saveBranchSummary(id: String, branchId: String, revision: Long, summary: String, throughOrder: Long) =
+        dao.saveBranchSummary(id, branchId, revision, summary, throughOrder)
 
     suspend fun updateBranchContextStart(branchId: String, order: Long) = dao.setBranchContextStart(branchId, order)
 

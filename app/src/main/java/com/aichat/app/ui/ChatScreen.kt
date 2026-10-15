@@ -2,6 +2,7 @@ package com.aichat.app.ui
 
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
@@ -18,9 +19,12 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
@@ -29,8 +33,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -51,12 +57,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import kotlin.math.roundToInt
 
-private const val CHAT_SEARCH_ENABLED = false
-
 @Composable
 internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack: () -> Unit) {
-    val messages by viewModel.messages.collectAsStateWithLifecycle()
     val routeSnapshot by viewModel.routeSnapshot.collectAsStateWithLifecycle()
+    val messages = routeSnapshot.messages
     // 版本與生成資料取自同一份路線快照，不會和訊息清單分屬不同路線。
     val versions = routeSnapshot.versions
     val contexts = routeSnapshot.contexts
@@ -76,8 +80,14 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
     val selectedId by viewModel.selectedConversationId.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val chatScope = rememberCoroutineScope()
-    var lastOpenedId by remember { mutableStateOf<String?>(null) }
-    var autoFollow by remember { mutableStateOf(true) }
+    var lastOpenedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var autoFollow by rememberSaveable(selectedId) { mutableStateOf(true) }
+    var anchorId by rememberSaveable(selectedId) { mutableStateOf<String?>(null) }
+    var anchorVersion by rememberSaveable(selectedId) { mutableStateOf<String?>(null) }
+    var anchorBranch by rememberSaveable(selectedId) { mutableStateOf<String?>(null) }
+    var anchorIndex by rememberSaveable(selectedId) { mutableIntStateOf(0) }
+    var anchorOffset by rememberSaveable(selectedId) { mutableIntStateOf(0) }
+    var restored by remember(selectedId) { mutableStateOf(false) }
     var showScrollToBottom by remember { mutableStateOf(false) }
     var fullChatWidth by remember { mutableIntStateOf(0) }
     var fullChatHeight by remember { mutableIntStateOf(0) }
@@ -88,35 +98,63 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
     var actionMessageId by remember(selectedId) { mutableStateOf<String?>(null) }
     var renameDialogVisible by remember(selectedId) { mutableStateOf(false) }
     var renameText by remember(selectedId, conversation?.title) { mutableStateOf(conversation?.title.orEmpty()) }
-    var searchExpanded by remember(selectedId) { mutableStateOf(false) }
+    val searchExpanded by viewModel.searchExpanded.collectAsStateWithLifecycle()
     var searchResultsMenu by remember(selectedId) { mutableStateOf(false) }
-    var highlightedMessageId by remember(selectedId) { mutableStateOf<String?>(null) }
+    var moreMenu by remember(selectedId) { mutableStateOf(false) }
+    var consumedSearchLocation by rememberSaveable(selectedId) { mutableLongStateOf(0) }
+    val searchFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val configuration = LocalConfiguration.current
+    val searchMenuWidth = (configuration.screenWidthDp - 32).coerceIn(120, 300).dp
+    val searchMenuHeight = minOf(searchState.hits.size.coerceAtMost(5) * 72, 320, configuration.screenHeightDp / 2).coerceAtLeast(1).dp
     // 創作入口：旁白、指定角色台詞、私人註記都有獨立編輯視窗，不覆蓋聊天輸入草稿。
     var narrationDraft by remember(selectedId) { mutableStateOf<String?>(null) }
     var noteDraft by remember(selectedId) { mutableStateOf<String?>(null) }
     var authoredDraft by remember(selectedId) { mutableStateOf<AuthoredDraft?>(null) }
     var authoredEditId by remember(selectedId) { mutableStateOf<String?>(null) }
-    val searchActive = CHAT_SEARCH_ENABLED && searchExpanded
+    val searchActive = searchExpanded
+    val highlightedMessageId = searchState.currentHit?.messageId.takeIf {
+        searchState.conversationId == selectedId && searchState.branchId == routeSnapshot.branchId
+    }
+    val requestBack: () -> Unit = {
+        when {
+            searchResultsMenu -> searchResultsMenu = false
+            searchActive && imeBottom > 0 -> { keyboard?.hide(); Unit }
+            searchActive -> { autoFollow = false; viewModel.closeSearch() }
+            else -> onBack()
+        }
+    }
+    BackHandler(searchActive && imeBottom == 0) { requestBack() }
     val contextMap = remember(contexts) {
         contexts.associateBy { it.versionId }
     }
     val versionMap = remember(versions) { versions.groupBy { it.messageId } }
     val bottomAnchorIndex = messages.size
-    LaunchedEffect(selectedId, CHAT_SEARCH_ENABLED) {
-        searchExpanded = false
-        searchResultsMenu = false
-        highlightedMessageId = null
-        viewModel.closeSearch()
+    LaunchedEffect(searchActive) {
+        if (searchActive) {
+            autoFollow = false
+            // AnimatedVisibility attaches the field after the first frame.
+            yield()
+            runCatching { searchFocus.requestFocus() }
+            keyboard?.show()
+        }
     }
-    LaunchedEffect(listState, messages.size) {
+    LaunchedEffect(listState, messages, searchActive, restored) {
         snapshotFlow {
             Triple(
                 listState.firstVisibleItemIndex,
                 listState.firstVisibleItemScrollOffset,
                 listState.isScrollInProgress,
             )
-        }.collect { (_, _, isScrolling) ->
-            if (isScrolling && !searchActive) autoFollow = listState.isNearBottom(bottomAnchorIndex)
+        }.collect { (index, offset, isScrolling) ->
+            if (restored) {
+                anchorId = messages.getOrNull(index)?.id
+                anchorVersion = messages.getOrNull(index)?.currentVersionId
+                anchorBranch = routeSnapshot.branchId
+                anchorIndex = index
+                anchorOffset = offset
+                if (!searchActive) autoFollow = listState.isNearBottom(bottomAnchorIndex)
+            }
         }
     }
     LaunchedEffect(listState, messages.size) {
@@ -125,31 +163,37 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
             .collect { showScrollToBottom = it }
     }
     LaunchedEffect(selectedId, messages.size) {
-        if (selectedId != null && selectedId != lastOpenedId && messages.isNotEmpty()) {
-            listState.scrollToItem(bottomAnchorIndex)
-            autoFollow = true
+        if (!restored && selectedId != null && routeSnapshot.conversationId == selectedId && messages.isNotEmpty()) {
+            if (selectedId == lastOpenedId && !autoFollow) {
+                val index = messages.indexOfFirst { it.id == anchorId }.takeIf { it >= 0 }
+                    ?: anchorIndex.coerceIn(0, messages.lastIndex)
+                val offset = if (messages.getOrNull(index)?.currentVersionId == anchorVersion && anchorBranch == routeSnapshot.branchId) anchorOffset else 0
+                listState.scrollToItem(index, offset)
+            } else if (!searchActive) {
+                listState.scrollToItem(bottomAnchorIndex)
+                autoFollow = true
+            }
             lastOpenedId = selectedId
+            restored = true
         }
     }
     LaunchedEffect(messages.lastOrNull()?.id, messages.lastOrNull()?.content, autoFollow) {
-        if (messages.isNotEmpty() && autoFollow && !searchActive) listState.scrollToItem(bottomAnchorIndex)
+        if (restored && messages.isNotEmpty() && autoFollow && !searchActive) listState.scrollToItem(bottomAnchorIndex)
     }
     LaunchedEffect(imeBottom) {
-        if (imeBottom > 0 && messages.isNotEmpty() && !searchActive) {
+        if (restored && autoFollow && imeBottom > 0 && messages.isNotEmpty() && !searchActive) {
             yield()
             listState.scrollToItem(bottomAnchorIndex)
         }
     }
-    LaunchedEffect(searchState.revision, searchActive) {
-        if (!searchActive) return@LaunchedEffect
+    LaunchedEffect(searchState.locating, searchActive) {
+        if (!searchActive || searchState.locating <= consumedSearchLocation) return@LaunchedEffect
+        consumedSearchLocation = searchState.locating
         val id = searchState.currentHit?.messageId ?: return@LaunchedEffect
         val index = messages.indexOfFirst { it.id == id }
         if (index >= 0) {
             autoFollow = false
             listState.animateScrollToItem(index)
-            highlightedMessageId = id
-            delay(1_200)
-            if (highlightedMessageId == id) highlightedMessageId = null
         }
     }
     // 切換版本或編輯後定位在被切換的訊息，不要跳到很遠的尾端。
@@ -193,7 +237,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
                             contentAlignment = Alignment.Center,
-                        ) { Back(language, onBack) }
+                        ) { Back(language, requestBack) }
                         Column(
                             Modifier
                                 .weight(1f)
@@ -233,56 +277,60 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                                 )
                             }
                         }
-                        if (CHAT_SEARCH_ENABLED) {
-                            Box(
-                                Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .clickable {
-                                        searchExpanded = true
-                                        autoFollow = false
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(Icons.Default.Search, language.pick("搜尋聊天室", "搜索聊天室"), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                        Box {
+                            IconButton(onClick = { moreMenu = true }, modifier = Modifier.size(48.dp)) {
+                                Icon(Icons.Default.MoreVert, language.pick("更多對話功能", "更多对话功能"), tint = MaterialTheme.colorScheme.primary)
                             }
-                        }
-                        Box(
-                            Modifier
-                                .padding(end = 6.dp)
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-                                .clickable(onClick = viewModel::openChatInfo),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Default.Info, language.pick("對話資訊", "对话信息"), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                            DropdownMenu(moreMenu, { moreMenu = false }) {
+                                DropdownMenuItem(text = { Text(language.pick("搜尋對話", "搜索对话")) },
+                                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                                    onClick = { moreMenu = false; autoFollow = false; viewModel.openSearch() })
+                                chatSettingActions(language).forEach { (screen, label, icon) ->
+                                    DropdownMenuItem(text = { Text(label) }, leadingIcon = { Icon(icon, null) },
+                                        onClick = { moreMenu = false; searchResultsMenu = false; viewModel.openChatSettings(screen) })
+                                }
+                            }
                         }
                     }
                     AnimatedVisibility(searchActive) {
-                        Row(
+                        Column(
                             Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(
                                 value = searchState.query,
                                 onValueChange = viewModel::setSearchQuery,
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text(language.pick("搜尋目前聊天室", "搜索当前聊天室")) },
+                                modifier = Modifier.weight(1f).focusRequester(searchFocus),
+                                placeholder = { Text(language.pick("搜尋目前分支的訊息…", "搜索当前分支的消息…")) },
                                 leadingIcon = { Icon(Icons.Default.Search, null) },
                                 singleLine = true,
                                 shape = RoundedCornerShape(18.dp),
                             )
+                            IconButton(onClick = { searchResultsMenu = false; autoFollow = false; keyboard?.hide(); viewModel.closeSearch() }) {
+                                Icon(Icons.Default.Close, language.pick("關閉搜尋", "关闭搜索"))
+                            }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (searchState.query.isNotBlank() && searchState.hits.isEmpty()) language.pick("找不到符合的訊息", "找不到符合的消息")
+                                else language.pick("第 ${if (searchState.hits.isEmpty()) 0 else searchState.currentIndex + 1} / ${searchState.hits.size} 則", "第 ${if (searchState.hits.isEmpty()) 0 else searchState.currentIndex + 1} / ${searchState.hits.size} 则"),
+                                Modifier.weight(1f), fontSize = 13.sp)
+                            IconButton(onClick = viewModel::previousSearchResult, enabled = searchState.hits.isNotEmpty()) {
+                                Icon(Icons.Default.KeyboardArrowUp, language.pick("上一則", "上一则"))
+                            }
+                            IconButton(onClick = viewModel::nextSearchResult, enabled = searchState.hits.isNotEmpty()) {
+                                Icon(Icons.Default.KeyboardArrowDown, language.pick("下一則", "下一则"))
+                            }
                             Box {
                                 TextButton(
                                     onClick = { searchResultsMenu = searchState.hits.isNotEmpty() },
                                     enabled = searchState.hits.isNotEmpty(),
                                 ) {
-                                    Text(if (searchState.hits.isEmpty()) "0 / 0" else "${searchState.currentIndex + 1} / ${searchState.hits.size}")
+                                    Text(language.pick("結果", "结果"))
                                 }
                                 DropdownMenu(searchActive && searchResultsMenu, { searchResultsMenu = false }) {
                                     LazyColumn(
-                                        Modifier.width(300.dp).height(minOf(searchState.hits.size * 72, 360).dp),
+                                        // DropdownMenu measures intrinsic sizes; LazyColumn needs both dimensions fixed.
+                                        Modifier.width(searchMenuWidth).height(searchMenuHeight),
                                     ) {
                                         itemsIndexed(searchState.hits, key = { _, hit -> hit.messageId }) { index, hit ->
                                             DropdownMenuItem(
@@ -290,23 +338,14 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                                                 onClick = {
                                                     viewModel.selectSearchResult(index)
                                                     searchResultsMenu = false
+                                                    keyboard?.hide()
                                                 },
                                             )
                                         }
                                     }
                                 }
                             }
-                            IconButton(onClick = viewModel::previousSearchResult, enabled = searchState.hits.isNotEmpty()) {
-                                Icon(Icons.Default.KeyboardArrowUp, language.pick("上一筆", "上一条"))
                             }
-                            IconButton(onClick = viewModel::nextSearchResult, enabled = searchState.hits.isNotEmpty()) {
-                                Icon(Icons.Default.KeyboardArrowDown, language.pick("下一筆", "下一条"))
-                            }
-                            IconButton(onClick = {
-                                searchExpanded = false
-                                searchResultsMenu = false
-                                viewModel.closeSearch()
-                            }) { Icon(Icons.Default.Close, language.pick("關閉搜尋", "关闭搜索")) }
                         }
                     }
                     Hairline()
@@ -341,7 +380,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                 if (messages.isEmpty()) EmptyState(language.pick("開始聊天", "开始聊天"), language.pick("輸入訊息，或從角色頁建立帶有開場白的對話。", "输入消息，或从角色页建立带有开场白的对话。"))
                 else LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().testTag("chat-message-list"),
                     contentPadding = PaddingValues(
                         start = 10.dp,
                         top = if (activeBranch?.legacyIncomplete == true) 46.dp else 10.dp,
@@ -546,6 +585,13 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
             viewModel::dismissDraftReplacement)
     }
 }
+
+private fun chatSettingActions(language: AppLanguage) = listOf(
+    Triple(Screen.CHAT_STORY, language.pick("劇情設定", "剧情设置"), Icons.Default.AutoStories),
+    Triple(Screen.CHAT_MEMORY, language.pick("對話記憶", "对话记忆"), Icons.Default.History),
+    Triple(Screen.CHAT_REPLY_SETTINGS, language.pick("回覆設定", "回复设置"), Icons.Default.Tune),
+    Triple(Screen.CHAT_APPEARANCE, language.pick("外觀設定", "外观设置"), Icons.Default.Image),
+)
 
 /** 手寫訊息的編輯視窗狀態；`messageId == null` 表示新增。 */
 private data class AuthoredDraft(val messageId: String?, val name: String, val content: String)

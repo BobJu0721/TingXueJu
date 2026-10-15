@@ -5,6 +5,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatSearchTest {
+    @org.junit.Test fun privateExcludedAndAuthoredAreSearchableButDeletedAreNot() {
+        val kinds = com.aichat.app.data.MessageKind.entries
+        val messages = kinds.mapIndexed { index, kind ->
+            com.aichat.app.data.MessageEntity("$index", "c", "user", "A[needle] needle", 1, kind = kind, excluded = true)
+        } + com.aichat.app.data.MessageEntity("deleted", "c", "user", "needle", 1, deleted = true)
+        org.junit.Assert.assertEquals(kinds.size, findChatMessages("NEEDLE", messages).second.size)
+        org.junit.Assert.assertEquals(kinds.size, findChatMessages("[needle]", messages).second.size)
+        org.junit.Assert.assertTrue(findChatMessages(" ", messages).second.isEmpty())
+    }
+
+    @org.junit.Test fun tenThousandMessagesKeepOneHitPerMessageAndOrder() {
+        val messages = (0 until 10000).map { com.aichat.app.data.MessageEntity("$it", "c", "user", "needle needle $it", 1) }
+        val hits = findChatMessages("needle", messages).second
+        org.junit.Assert.assertEquals(10000, hits.size)
+        org.junit.Assert.assertEquals("0", hits.first().messageId)
+        org.junit.Assert.assertEquals("9999", hits.last().messageId)
+    }
     @Test fun searchIsLiteralCaseInsensitiveAndIncludesExcludedMessages() {
         val messages = listOf(
             message("1", "Hello %_ (World)"),

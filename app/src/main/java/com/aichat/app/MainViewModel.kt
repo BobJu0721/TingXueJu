@@ -11,7 +11,7 @@ import java.io.IOException
 
 enum class Screen {
     CONVERSATIONS, CHAT, SETTINGS, MODELS, CHARACTERS, LIBRARY, PROFILE_EDIT,
-    WORLD_SETS, WORLD_SET_EDIT, NEW_CHAT, CHAT_INFO, API_SETTINGS,
+    WORLD_SETS, WORLD_SET_EDIT, NEW_CHAT, CHAT_STORY, CHAT_MEMORY, CHAT_REPLY_SETTINGS, CHAT_APPEARANCE, API_SETTINGS,
 }
 enum class ErrorKind { GENERAL, CONTEXT_LENGTH, MODEL_SELECTION, CHAT_OPTIONS }
 enum class ImportTarget { CHARACTER, PERSONA, WORLD_SET }
@@ -64,7 +64,7 @@ private fun mapApiError(error: ApiException, title: String, language: AppLanguag
     return when {
         error.isContextLengthError -> result("上下文過長", "上下文过长", "可裁切舊訊息並重試，或建立新對話。", "可裁切旧消息并重试，或建立新对话。", ErrorKind.CONTEXT_LENGTH)
         error.isReasoningParameterError -> result("模型不接受思考參數", "模型不接受思考参数", "請至模型選擇頁改用自動模式，或選擇支援此設定的模型。", "请至模型选择页改用自动模式，或选择支持此设置的模型。", ErrorKind.MODEL_SELECTION)
-        error.isTokenLimitParameterError -> result("模型不接受 Token 上限參數", "模型不接受 Token 上限参数", "請至對話資訊修改最大輸出 Token 或參數欄位。", "请至对话信息修改最大输出 Token 或参数字段。", ErrorKind.CHAT_OPTIONS)
+        error.isTokenLimitParameterError -> result("模型不接受 Token 上限參數", "模型不接受 Token 上限参数", "請至回覆設定修改最大輸出 Token 或參數欄位。", "请至回复设置修改最大输出 Token 或参数字段。", ErrorKind.CHAT_OPTIONS)
         error.statusCode == 401 -> result("API Key 無效", "API Key 无效", "請檢查 Key 與供應商設定。", "请检查 Key 与供应商设置。")
         error.statusCode == 402 -> result("帳務或額度限制", "账务或额度限制", "請至供應商的 Billing 頁面檢查帳務狀態與可用額度。", "请至供应商的 Billing 页面检查账务状态与可用额度。")
         cloudflare && error.internalCode == "5035" -> result("模型需要付費方案", "模型需要付费方案", "此模型需要 Workers Paid 或適用的 AI Gateway 預付額度；也可自行選擇免費方案可用的模型。", "此模型需要 Workers Paid 或适用的 AI Gateway 预付额度；也可自行选择免费方案可用的模型。")

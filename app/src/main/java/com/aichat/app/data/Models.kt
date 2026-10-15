@@ -304,6 +304,8 @@ data class RouteRows(
     val messages: List<RouteMessageRow>,
     val versions: List<MessageVersionEntity>,
     val contexts: List<GenerationContextEntity>,
+    val conversationId: String? = null,
+    val branchId: String? = null,
 )
 
 /** 攤平後、可直接交給上層使用的路線快照。 */
@@ -311,6 +313,8 @@ data class RouteSnapshot(
     val messages: List<MessageEntity> = emptyList(),
     val versions: List<MessageVersionEntity> = emptyList(),
     val contexts: List<GenerationContextEntity> = emptyList(),
+    val conversationId: String? = null,
+    val branchId: String? = null,
 )
 /**
  * 目前路線的一則訊息：訊息本身加上該路線選定的版本、順序與排除狀態。
