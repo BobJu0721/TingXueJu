@@ -124,7 +124,10 @@ private object AppRoute {
     const val WORLD_SETS = "world_sets"
     const val WORLD_SET_EDIT = "world_set_edit"
     const val NEW_CHAT = "new_chat"
-    const val CHAT_INFO = "chat_info"
+    const val CHAT_STORY = "chat_story"
+    const val CHAT_MEMORY = "chat_memory"
+    const val CHAT_REPLY_SETTINGS = "chat_reply_settings"
+    const val CHAT_APPEARANCE = "chat_appearance"
 
     fun apiSettingsBuiltIn(provider: Provider) = "api_settings/built_in/${provider.name}"
     fun apiSettingsCustom(id: String) = "api_settings/custom/$id"
@@ -192,7 +195,10 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
             Screen.WORLD_SETS -> navController.navigate(AppRoute.WORLD_SETS) { launchSingleTop = true }
             Screen.WORLD_SET_EDIT -> navController.navigate(AppRoute.WORLD_SET_EDIT) { launchSingleTop = true }
             Screen.NEW_CHAT -> navController.navigate(AppRoute.NEW_CHAT) { launchSingleTop = true }
-            Screen.CHAT_INFO -> navController.navigate(AppRoute.CHAT_INFO) { launchSingleTop = true }
+            Screen.CHAT_STORY -> navController.navigate(AppRoute.CHAT_STORY) { launchSingleTop = true }
+            Screen.CHAT_MEMORY -> navController.navigate(AppRoute.CHAT_MEMORY) { launchSingleTop = true }
+            Screen.CHAT_REPLY_SETTINGS -> navController.navigate(AppRoute.CHAT_REPLY_SETTINGS) { launchSingleTop = true }
+            Screen.CHAT_APPEARANCE -> navController.navigate(AppRoute.CHAT_APPEARANCE) { launchSingleTop = true }
         }
     }
     LaunchedEffect(settingsViewModel) {
@@ -300,7 +306,10 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                 page(AppRoute.WORLD_SETS) { WorldSetsScreen(worldSetsViewModel, { navController.navigateUp() }, language) }
                 page(AppRoute.WORLD_SET_EDIT) { WorldSetEditScreen(worldSetsViewModel, language) { navController.navigateUp() } }
                 page(AppRoute.NEW_CHAT) { NewChatScreen(newChatViewModel, { navController.navigateUp() }, language) }
-                page(AppRoute.CHAT_INFO) { ChatInfoScreen(chatViewModel, language) { navController.navigateUp() } }
+                page(AppRoute.CHAT_STORY) { ChatStoryScreen(chatViewModel, language) { navController.navigateUp() } }
+                page(AppRoute.CHAT_MEMORY) { ChatMemoryScreen(chatViewModel, language) { navController.navigateUp() } }
+                page(AppRoute.CHAT_REPLY_SETTINGS) { ChatReplySettingsScreen(chatViewModel, language) { navController.navigateUp() } }
+                page(AppRoute.CHAT_APPEARANCE) { ChatAppearanceScreen(chatViewModel, language) { navController.navigateUp() } }
             }
             HalfProgressBackBridge(
                 enabled = hasBackTarget,
@@ -332,7 +341,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                     }
                     navigateTo(when (current.kind) {
                         ErrorKind.MODEL_SELECTION -> Screen.MODELS
-                        ErrorKind.CHAT_OPTIONS -> Screen.CHAT_INFO
+                        ErrorKind.CHAT_OPTIONS -> Screen.CHAT_REPLY_SETTINGS
                         else -> Screen.SETTINGS
                     })
                 },

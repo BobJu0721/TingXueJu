@@ -27,8 +27,9 @@ class SummarizeConversationUseCase(
         eligibleHistory: List<MessageEntity>? = null,
         persist: Boolean = true,
     ): ConversationEntity? {
-        val conversation = conversationRepository.getActiveConversation(conversationId) ?: return null
-        val history = (eligibleHistory ?: conversationRepository.getMessages(conversationId))
+        val snapshot = conversationRepository.getGenerationSnapshot(conversationId) ?: return null
+        val conversation = snapshot.conversation
+        val history = (eligibleHistory ?: snapshot.messages)
             .filter { !it.excluded && it.content.isNotBlank() }
         val plan = conversationSummaryPlan(conversation, history, keepRecentMessages, mode)
         val older = plan.messagesToSummarize
@@ -59,8 +60,9 @@ class SummarizeConversationUseCase(
         )
         // 摘要只寫進目前路線；其他路線的摘要與裁切狀態不受影響。
         if (persist) {
-            conversationRepository.getActiveBranch(conversationId)?.let { branch ->
-                conversationRepository.updateBranchSummary(branch.id, updated.summary, plan.summaryThroughOrder)
+            check(conversationRepository.saveBranchSummary(conversationId, snapshot.branch.id,
+                conversation.historyRevision, updated.summary, plan.summaryThroughOrder)) {
+                settings.language.pick("對話或分支已變更，原摘要保留；請重新壓縮。", "对话或分支已变更，原摘要保留；请重新压缩。")
             }
         }
         return updated

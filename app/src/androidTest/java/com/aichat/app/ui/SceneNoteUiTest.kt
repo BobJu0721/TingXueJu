@@ -32,19 +32,19 @@ class SceneNoteUiTest {
         vm = ChatViewModel(container)
         vm.selectConversation("ui")
         withTimeout(5000) { while (vm.selectedConversation.value == null) delay(25) }
-        vm.openChatInfo()
-        withTimeout(5000) { while (vm.chatInfoBranch.value == null) delay(25) }
+        vm.loadChatSettings("ui")
+        withTimeout(5000) { while (vm.settingsSnapshot.value == null) delay(25) }
     }
 
     @After fun cleanup() { vm.viewModelScope.cancel(); db.close() }
 
     @Test fun traditionalLightUnsavedBackOffersContinueAndDiscard() {
         rule.setContent { MaterialTheme(colorScheme = iosColorScheme(false)) {
-            ChatInfoScreen(vm, AppLanguage.TRADITIONAL_CHINESE) { returned++ }
+            ChatStoryScreen(vm, AppLanguage.TRADITIONAL_CHINESE) { returned++ }
         } }
         rule.onNodeWithText("劇情提示內容").performScrollTo().performTextInput("雨夜客棧\nDo not reveal.")
         rule.onNodeWithContentDescription("返回").performClick()
-        rule.onNodeWithText("本場劇情提示尚未儲存。").assertIsDisplayed()
+        rule.onNodeWithText("尚未儲存劇情設定").assertIsDisplayed()
         rule.onNodeWithText("繼續編輯").performClick()
         rule.onNodeWithText("雨夜客棧\nDo not reveal.").assertExists()
         assertEquals(0, returned)
@@ -59,7 +59,7 @@ class SceneNoteUiTest {
         rule.setContent { MaterialTheme(colorScheme = iosColorScheme(true)) {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, 1.3f)) {
-                ChatInfoScreen(vm, AppLanguage.SIMPLIFIED_CHINESE) { returned++ }
+                ChatStoryScreen(vm, AppLanguage.SIMPLIFIED_CHINESE) { returned++ }
             }
         } }
         rule.onNodeWithContentDescription("启用本场剧情提示").performScrollTo().performClick()
@@ -69,9 +69,9 @@ class SceneNoteUiTest {
         rule.waitUntil(5000) { returned == 1 }
         runBlocking {
             assertEquals(SceneNote(note, true), repo.getActiveBranch("ui")!!.sceneNoteValue())
-            vm.loadChatInfo("ui")
+            vm.loadChatSettings("ui")
         }
-        rule.waitUntil(5000) { vm.chatInfoBranch.value?.sceneNote == note }
+        rule.waitUntil(5000) { vm.settingsSnapshot.value?.story?.sceneNote?.text == note }
         rule.onNodeWithText(note).assertExists()
     }
 }

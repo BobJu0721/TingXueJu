@@ -47,7 +47,8 @@ class Migration10To11Test {
             assertEquals(listOf("new text"), upgraded.getMessages("c").map { it.content })
             val currentBranch = upgraded.getActiveBranch("c")!!.id
             val note = SceneNote("雨夜客棧\nEnglish\n\n保留換行\n", true)
-            assertTrue(upgraded.saveChatInfo("c", currentBranch, note, ReplyLengthPreference.DEFAULT, null, TokenLimitField.AUTO))
+            val settings = upgraded.getChatSettings("c")!!
+            assertTrue(upgraded.saveStorySettings(settings, settings.story.copy(sceneNote = note)))
             room.close()
             room = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
             assertEquals(note, ConversationRepository(room.chatDao()).getActiveBranch("c")!!.sceneNoteValue())

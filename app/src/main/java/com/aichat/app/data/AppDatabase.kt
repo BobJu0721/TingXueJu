@@ -106,30 +106,60 @@ interface ChatDao {
     suspend fun setSceneNote(conversationId: String, branchId: String, text: String, enabled: Boolean)
 
     @Transaction
-    suspend fun saveChatInfo(
-        conversationId: String,
-        branchId: String,
-        note: SceneNote,
-        preference: ReplyLengthPreference,
-        maxTokens: Int?,
-        field: TokenLimitField,
-    ): Boolean {
-        val conversation = getConversation(conversationId) ?: return false
-        val branch = getBranch(branchId) ?: return false
-        if (conversation.activeBranchId != branchId || branch.conversationId != conversationId) return false
-        val changed = branch.sceneNoteValue() != note || conversation.replyLengthPreference != preference ||
-            conversation.maxOutputTokens != maxTokens || conversation.tokenLimitField != field
-        if (changed) {
-            setSceneNote(conversationId, branchId, note.text, note.enabled)
-            updateConversation(conversation.copy(
-                replyLengthPreference = preference,
-                maxOutputTokens = maxTokens,
-                tokenLimitField = field,
-                updatedAt = System.currentTimeMillis(),
-                historyRevision = conversation.historyRevision + 1,
-            ))
+    suspend fun getChatSettings(conversationId: String): ChatSettingsSnapshot? {
+        val conversation = getConversation(conversationId) ?: return null
+        val branch = getActiveBranch(conversationId) ?: return null
+        return ChatSettingsSnapshot(conversationId, branch.id,
+            StorySettings(branch.sceneNoteValue(), conversation.personaId, getConversationWorldSetIds(conversationId).toSet()),
+            conversation.replySettings())
+    }
+
+    @Query("UPDATE conversations SET personaId = :personaId, updatedAt = :now, historyRevision = historyRevision + 1 WHERE id = :id")
+    suspend fun setStoryPersona(id: String, personaId: String?, now: Long)
+
+    @Query("UPDATE conversations SET replyLengthPreference = :preference, maxOutputTokens = :maxTokens, tokenLimitField = :field, updatedAt = :now, historyRevision = historyRevision + 1 WHERE id = :id")
+    suspend fun setReplySettings(id: String, preference: ReplyLengthPreference, maxTokens: Int?, field: TokenLimitField, now: Long)
+
+    @Transaction
+    suspend fun saveStorySettings(expected: ChatSettingsSnapshot, draft: StorySettings): Boolean {
+        val fresh = getChatSettings(expected.conversationId) ?: return false
+        if (fresh.branchId != expected.branchId || fresh.story != expected.story) return false
+        require(draft.personaId == null || getProfile(draft.personaId)?.type == ProfileType.PERSONA) {
+            "所選 Persona 已被刪除，請重新選擇。 / 所选 Persona 已被删除，请重新选择。"
+        }
+        require(getWorldSets(draft.worldSetIds.toList()).map { it.id }.toSet() == draft.worldSetIds) {
+            "所選世界設定已被刪除，請重新選擇。 / 所选世界设定已被删除，请重新选择。"
+        }
+        if (fresh.story != draft) {
+            setSceneNote(expected.conversationId, expected.branchId, draft.sceneNote.text, draft.sceneNote.enabled)
+            replaceConversationWorldSets(expected.conversationId,
+                draft.worldSetIds.map { ConversationWorldSetEntity(expected.conversationId, it) })
+            setStoryPersona(expected.conversationId, draft.personaId, System.currentTimeMillis())
         }
         return true
+    }
+
+    @Transaction
+    suspend fun saveReplySettings(expected: ChatSettingsSnapshot, draft: ReplySettings): Boolean {
+        require(draft.maxTokens == null || draft.maxTokens > 0)
+        val conversation = getConversation(expected.conversationId) ?: return false
+        if (conversation.replySettings() != expected.reply) return false
+        if (conversation.replySettings() != draft) setReplySettings(expected.conversationId,
+            draft.preference, draft.maxTokens, draft.field, System.currentTimeMillis())
+        return true
+    }
+
+    @Query("UPDATE conversations SET backgroundImagePath = :path WHERE id = :id")
+    suspend fun setBackgroundPath(id: String, path: String): Int
+
+    @Query("UPDATE conversations SET messageBubbleOpacity = :opacity WHERE id = :id")
+    suspend fun setBubbleOpacity(id: String, opacity: Float): Int
+
+    @Transaction
+    suspend fun replaceBackground(id: String, path: String): String {
+        val conversation = getConversation(id) ?: error("聊天室已不存在 / 聊天室已不存在")
+        check(setBackgroundPath(id, path) == 1)
+        return conversation.backgroundImagePath
     }
 
     @Query("DELETE FROM conversation_branches WHERE id = :id")
@@ -140,6 +170,16 @@ interface ChatDao {
 
     @Query("UPDATE conversation_branches SET summary = :summary, summaryThroughOrder = :throughOrder WHERE id = :id")
     suspend fun setBranchSummary(id: String, summary: String, throughOrder: Long)
+
+    @Transaction
+    suspend fun saveBranchSummary(conversationId: String, branchId: String, expectedRevision: Long, summary: String, throughOrder: Long): Boolean {
+        val conversation = getConversation(conversationId) ?: return false
+        val branch = getBranch(branchId) ?: return false
+        if (branch.conversationId != conversationId || conversation.activeBranchId != branchId ||
+            conversation.historyRevision != expectedRevision) return false
+        setBranchSummary(branchId, summary, throughOrder)
+        return true
+    }
 
     @Query("UPDATE conversation_branches SET contextStartOrder = :order WHERE id = :id")
     suspend fun setBranchContextStart(id: String, order: Long)
@@ -353,6 +393,8 @@ interface ChatDao {
         messages = getRouteMessages(conversationId),
         versions = getRouteVersions(conversationId),
         contexts = getRouteGenerationContexts(conversationId),
+        conversationId = conversationId,
+        branchId = getConversation(conversationId)?.activeBranchId,
     )
 
     /** 目前路線所有訊息的版本，供版本箭頭使用。 */

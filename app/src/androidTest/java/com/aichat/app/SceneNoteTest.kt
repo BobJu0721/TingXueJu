@@ -31,6 +31,7 @@ class SceneNoteTest {
     private val payloads = CopyOnWriteArrayList<JSONObject>()
     private var fail = false
     private var lengthErrorOnce = false
+    private var finishAtLength = false
     @Volatile private var streamGate: CountDownLatch? = null
     private val settings = AppSettings(provider = Provider.CUSTOM, customBaseUrl = "https://scene-test.invalid/v1", model = "test")
     private val inn = SceneNote("雨夜客棧\nKeep the secret.", true)
@@ -50,7 +51,9 @@ class SceneNoteTest {
             val body = when {
                 contextError -> """{"error":{"message":"maximum context length exceeded","code":"context_length_exceeded"}}"""
                 fail -> """{"error":{"message":"test failure"}}"""
-                stream -> "data: {\"choices\":[{\"delta\":{\"content\":\"new answer\"}}]}\n\ndata: [DONE]\n\n"
+                stream -> "data: {\"choices\":[{\"delta\":{\"content\":\"new answer\"}}]}\n\n" +
+                    (if (finishAtLength) "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n" else "") +
+                    "data: [DONE]\n\n"
                 else -> JSONObject().put("choices", org.json.JSONArray().put(JSONObject().put("message",
                     JSONObject().put("content", "{}")))).toString()
             }
@@ -80,20 +83,22 @@ class SceneNoteTest {
         db.close()
     }
 
-    private suspend fun save(note: SceneNote, branch: String? = null): Boolean =
-        repo.saveChatInfo("c", branch ?: repo.getActiveBranch("c")!!.id, note, ReplyLengthPreference.DEFAULT, null, TokenLimitField.AUTO)
+    private suspend fun save(note: SceneNote, branch: String? = null): Boolean {
+        val snapshot = repo.getChatSettings("c")!!
+        return repo.saveStorySettings(snapshot.copy(branchId = branch ?: snapshot.branchId), snapshot.story.copy(sceneNote = note))
+    }
 
     @Test fun atomicSavePreservesSummaryAndDoesNotTouchLastUsedOrNoOpRevision() = runBlocking {
         val branch = repo.getActiveBranch("c")!!
         repo.updateBranchSummary(branch.id, "summary", 1)
         val before = repo.getConversation("c")!!
-        assertTrue(repo.saveChatInfo("c", branch.id, inn, ReplyLengthPreference.DETAILED, 500, TokenLimitField.MAX_TOKENS))
+        assertTrue(save(inn, branch.id))
         val after = repo.getConversation("c")!!
         assertEquals(before.historyRevision + 1, after.historyRevision)
         assertEquals(inn, repo.getActiveBranch("c")!!.sceneNoteValue())
         assertEquals("summary", repo.getActiveBranch("c")!!.summary)
         assertEquals(branch.lastUsedAt, repo.getActiveBranch("c")!!.lastUsedAt)
-        assertTrue(repo.saveChatInfo("c", branch.id, inn, ReplyLengthPreference.DETAILED, 500, TokenLimitField.MAX_TOKENS))
+        assertTrue(save(inn, branch.id))
         assertEquals(after.historyRevision, repo.getConversation("c")!!.historyRevision)
         assertEquals(inn, ConversationRepository(db.chatDao()).getActiveBranch("c")!!.sceneNoteValue())
     }
@@ -184,10 +189,10 @@ class SceneNoteTest {
         val source = repo.getActiveBranch("c")!!.id
         val first = repo.getMessages("c").first()
         repo.addEditedVersion("c", first.id, "new", repo.getConversation("c")!!.historyRevision)
-        assertFalse(repo.saveChatInfo("c", source, inn, ReplyLengthPreference.SHORT, 42, TokenLimitField.MAX_TOKENS))
+        assertFalse(save(inn, source))
         assertEquals(SceneNote(), db.chatDao().getBranch(source)!!.sceneNoteValue())
         assertEquals(ReplyLengthPreference.DEFAULT, repo.getConversation("c")!!.replyLengthPreference)
-        assertFalse(repo.saveChatInfo("c", "missing", inn, ReplyLengthPreference.SHORT, null, TokenLimitField.AUTO))
+        assertFalse(save(inn, "missing"))
     }
 
     @Test fun summaryAndImportTasksNeverReceiveSceneNote() = runBlocking {
@@ -207,10 +212,11 @@ class SceneNoteTest {
         val old = repo.getActiveBranch("c")!!.id
         vm.requestEditMessage(first.id, "beach")
         await { repo.getActiveBranch("c")!!.id != old }
-        vm.openChatInfo()
-        await { vm.chatInfoBranch.value?.id == repo.getActiveBranch("c")!!.id }
+        vm.loadChatSettings("c")
+        await { vm.settingsSnapshot.value?.branchId == repo.getActiveBranch("c")!!.id }
         var saved = false
-        vm.saveChatInfo("c", vm.chatInfoBranch.value!!.id, inn, ReplyLengthPreference.DETAILED, 400, TokenLimitField.AUTO) { saved = true }
+        val expected = vm.settingsSnapshot.value!!
+        vm.saveStorySettings(expected, expected.story.copy(sceneNote = inn)) { saved = true }
         await { saved && !vm.isSavingChatInfo.value }
         assertTrue(payloads.isEmpty())
         vm.requestAnswerFrom(first.id)
@@ -219,21 +225,22 @@ class SceneNoteTest {
         assertTrue(payloads.last().getJSONArray("messages").getJSONObject(0).getString("content").endsWith(inn.text))
         vm.requestSelectVersion(first.id, repo.getMessageVersions(first.id).first().id)
         await { repo.getActiveBranch("c")!!.id == old }
-        vm.openChatInfo()
-        await { vm.chatInfoBranch.value?.id == old }
-        assertEquals(SceneNote(), vm.chatInfoBranch.value!!.sceneNoteValue())
+        vm.loadChatSettings("c")
+        await { vm.settingsSnapshot.value?.branchId == old }
+        assertEquals(SceneNote(), vm.settingsSnapshot.value!!.story.sceneNote)
     }
 
     @Test fun viewModelStaleSaveReportsErrorAndDoesNotReturn() = runBlocking {
         vm.selectConversation("c")
         await { vm.selectedConversation.value?.id == "c" }
-        vm.openChatInfo()
-        await { vm.chatInfoBranch.value != null }
-        val branch = vm.chatInfoBranch.value!!.id
+        vm.loadChatSettings("c")
+        await { vm.settingsSnapshot.value != null }
+        val expected = vm.settingsSnapshot.value!!
+        val branch = expected.branchId
         val first = repo.getMessages("c").first()
         repo.addEditedVersion("c", first.id, "new", repo.getConversation("c")!!.historyRevision)
         var returned = false
-        vm.saveChatInfo("c", branch, inn, ReplyLengthPreference.SHORT, null, TokenLimitField.AUTO) { returned = true }
+        vm.saveStorySettings(expected, expected.story.copy(sceneNote = inn)) { returned = true }
         await { !vm.isSavingChatInfo.value }
         assertFalse(returned)
         assertNotNull(vm.error.value)
@@ -267,7 +274,8 @@ class SceneNoteTest {
         vm.send()
         await { payloads.isNotEmpty() && vm.isStreaming.value }
         var returned = false
-        vm.saveChatInfo("c", source, SceneNote("changed", true), ReplyLengthPreference.SHORT, null, TokenLimitField.AUTO) { returned = true }
+        val expected = repo.getChatSettings("c")!!.copy(branchId = source)
+        vm.saveStorySettings(expected, expected.story.copy(sceneNote = SceneNote("changed", true))) { returned = true }
         assertFalse(vm.isSavingChatInfo.value)
         assertFalse(returned)
         assertEquals(inn, db.chatDao().getBranch(source)!!.sceneNoteValue())
@@ -275,6 +283,18 @@ class SceneNoteTest {
         gate.countDown()
         await { !vm.isStreaming.value }
         assertEquals(inn, repo.getActiveBranch("c")!!.sceneNoteValue())
+    }
+
+    @Test fun outputLimitNoticeGuidesToReplySettingsWithoutDiscardingAnswer() = runBlocking {
+        vm.selectConversation("c")
+        await { vm.settings.value.provider == Provider.CUSTOM && vm.selectedConversation.value != null }
+        finishAtLength = true
+        vm.setInput("next")
+        vm.send()
+        await { payloads.isNotEmpty() && !vm.isStreaming.value }
+        assertEquals(ErrorKind.CHAT_OPTIONS, vm.error.value?.kind)
+        assertTrue(vm.error.value!!.suggestion.contains("回覆設定"))
+        assertEquals("new answer", repo.getMessages("c").last().content)
     }
 
     private suspend fun await(predicate: suspend () -> Boolean) = withTimeout(8000) {
