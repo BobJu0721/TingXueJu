@@ -53,10 +53,10 @@
 
 ### 最新版本
 
-`main` 原始碼版本為 **v1.17**；本次先更新原始碼，尚未建立 v1.17 Release。目前可下載的正式 APK 仍為 **v1.16**，不含新增分支樹與直向鎖定：
+目前版本為 **v1.17**：
 
-- [下載簽章版 APK：TingXueJu-v1.16-release.apk](https://github.com/BobJu0721/TingXueJu/releases/download/v1.16/TingXueJu-v1.16-release.apk)
-- [查看 v1.16 發布說明](https://github.com/BobJu0721/TingXueJu/releases/tag/v1.16)
+- [下載簽章版 APK：TingXueJu-v1.17-release.apk](https://github.com/BobJu0721/TingXueJu/releases/download/v1.17/TingXueJu-v1.17-release.apk)
+- [查看 v1.17 發布說明](https://github.com/BobJu0721/TingXueJu/releases/tag/v1.17)
 - [瀏覽所有 Releases](https://github.com/BobJu0721/TingXueJu/releases)
 
 安裝方式：
@@ -153,8 +153,7 @@ docs/                 文件與畫面資產
 
 ## 專案狀態
 
-- main 原始碼版本：**v1.17**
-- 最新已發布 APK：**v1.16**（v1.17 Release 尚未建立）
+- 最新穩定版本：**v1.17**
 - 最低系統版本：**Android 12 / API 31**
 - 目前僅支援雲端 API，不支援直接連接本地模型
 - v1.17 新增對話分支樹、路線預覽及精準切換，並將整個 App 固定為直向顯示
