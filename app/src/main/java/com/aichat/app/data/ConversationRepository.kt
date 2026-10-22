@@ -2,6 +2,7 @@ package com.aichat.app.data
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.sample
 import com.aichat.app.domain.ChatGenerationKind
 import java.util.UUID
 
@@ -22,6 +23,17 @@ data class GenerationDraft(
 )
 
 class ConversationRepository(private val dao: ChatDao) {
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    fun observeBranchTree(id: String): Flow<BranchTreeSnapshot?> = dao.observeBranchTreeInvalidation(
+        androidx.sqlite.db.SimpleSQLiteQuery("SELECT 1 FROM conversations WHERE id = ?", arrayOf(id)),
+    ).sample(300).map { dao.getBranchTree(id) }
+
+    suspend fun getBranchTree(id: String) = dao.getBranchTree(id)
+    suspend fun getBranchPreview(id: String, branchId: String, messageId: String?, offset: Int? = null) =
+        dao.getBranchPreview(id, branchId, messageId, offset)
+    suspend fun switchToBranch(conversationId: String, targetBranchId: String, expectedActiveBranchId: String, expectedRevision: Long) =
+        dao.switchToBranch(conversationId, targetBranchId, expectedActiveBranchId, expectedRevision)
+
     fun observeConversations(): Flow<List<ConversationEntity>> = dao.observeConversations()
     fun observeBranches(conversationId: String): Flow<List<ConversationBranchEntity>> = dao.observeBranches(conversationId)
     fun observeActiveBranch(conversationId: String): Flow<ConversationBranchEntity?> = dao.observeActiveBranch(conversationId)

@@ -70,7 +70,7 @@ class ChatSettingsUiTest {
         assertEquals(1, returned)
     }
 
-    @Test fun menuHasExactlyFiveActionsAndSearchSurvivesChildReturn() {
+    @Test fun menuHasSixActionsAndSearchSurvivesChildReturn() {
         var child by mutableStateOf(false)
         rule.setContent {
             val holder = rememberSaveableStateHolder()
@@ -83,7 +83,7 @@ class ChatSettingsUiTest {
             }
         }
         rule.onNodeWithContentDescription("更多對話功能").performClick()
-        listOf("搜尋對話", "劇情設定", "對話記憶", "回覆設定", "外觀設定").forEach { rule.onNodeWithText(it).assertIsDisplayed() }
+        listOf("搜尋對話", "劇情設定", "對話分支", "對話記憶", "回覆設定", "外觀設定").forEach { rule.onNodeWithText(it).assertIsDisplayed() }
         rule.onNodeWithContentDescription("對話資訊").assertDoesNotExist()
         rule.onNodeWithText("搜尋對話").performClick()
         rule.onNodeWithText("搜尋目前分支的訊息…").performTextInput("item 3")

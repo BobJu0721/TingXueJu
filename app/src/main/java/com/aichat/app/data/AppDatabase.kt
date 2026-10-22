@@ -7,6 +7,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
@@ -14,10 +15,80 @@ import androidx.room.Update
 import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ChatDao {
+    @RawQuery(observedEntities = [ConversationEntity::class, ConversationBranchEntity::class,
+        BranchMessageEntity::class, MessageEntity::class, MessageVersionEntity::class])
+    fun observeBranchTreeInvalidation(query: SupportSQLiteQuery): Flow<Int?>
+
+    @Query("SELECT id, createdAt, sourceBranchId, forkMessageId, forkVersionId, legacyIncomplete FROM conversation_branches WHERE conversationId = :id ORDER BY createdAt, id")
+    suspend fun getTreeRoutes(id: String): List<BranchTreeRoute>
+
+    @Query("SELECT bm.branchId, bm.messageId, bm.versionId, bm.sortOrder, bm.excluded, " +
+        "COALESCE(m.deleted, 0) AS deleted, COALESCE(m.role, '') AS role, COALESCE(m.kind, 'CHAT') AS kind, " +
+        "v.versionNumber, v.status, v.source, CASE WHEN m.deleted = 1 OR m.kind = 'PRIVATE_NOTE' THEN '' " +
+        "WHEN v.messageId = m.id AND m.conversationId = :id THEN substr(COALESCE(v.content, ''), 1, 160) ELSE '' END AS snippet, " +
+        "CASE WHEN v.messageId = m.id AND m.conversationId = :id THEN substr(v.authorName, 1, 80) ELSE NULL END AS authorName, " +
+        "COALESCE((m.id IS NOT NULL AND m.conversationId = :id AND v.messageId = m.id), 0) AS valid " +
+        "FROM branch_messages bm JOIN conversation_branches b ON b.id = bm.branchId " +
+        "LEFT JOIN messages m ON m.id = bm.messageId LEFT JOIN message_versions v ON v.id = bm.versionId " +
+        "WHERE b.conversationId = :id ORDER BY b.createdAt, b.id, bm.sortOrder")
+    suspend fun getTreeRows(id: String): List<BranchTreeRow>
+
+    @Query("SELECT id, title, activeBranchId, historyRevision FROM conversations WHERE id = :id")
+    suspend fun getTreeConversation(id: String): BranchTreeConversation?
+
+    @Transaction
+    suspend fun getBranchTree(id: String): BranchTreeSnapshot? {
+        val c = getTreeConversation(id) ?: return null
+        return BranchTreeSnapshot(id, c.title, c.activeBranchId, c.historyRevision, getTreeRoutes(id), getTreeRows(id))
+    }
+
+    @Query("SELECT bm.messageId, bm.versionId, bm.sortOrder, bm.excluded, COALESCE(m.deleted, 0) AS deleted, " +
+        "COALESCE(m.role, '') AS role, COALESCE(m.kind, 'CHAT') AS kind, " +
+        "v.authorName, CASE WHEN m.deleted = 1 THEN '' ELSE COALESCE(v.content, '') END AS content, v.status " +
+        "FROM branch_messages bm JOIN conversation_branches b ON b.id = bm.branchId " +
+        "LEFT JOIN messages m ON m.id = bm.messageId AND m.conversationId = b.conversationId " +
+        "LEFT JOIN message_versions v ON v.id = bm.versionId AND v.messageId = m.id " +
+        "WHERE bm.branchId = :branchId ORDER BY bm.sortOrder LIMIT :limit OFFSET :offset")
+    suspend fun getBranchPreviewRows(branchId: String, offset: Int, limit: Int): List<BranchPreviewRow>
+
+    @Query("SELECT COUNT(*) FROM branch_messages WHERE branchId = :branchId")
+    suspend fun getBranchRowCount(branchId: String): Int
+
+    @Query("SELECT COUNT(*) FROM branch_messages WHERE branchId = :branchId AND sortOrder < " +
+        "(SELECT sortOrder FROM branch_messages WHERE branchId = :branchId AND messageId = :messageId)")
+    suspend fun getBranchMessageIndex(branchId: String, messageId: String): Int
+
+    @Transaction
+    suspend fun getBranchPreview(id: String, branchId: String, messageId: String?, offset: Int?): BranchPreviewPage? {
+        if (getBranch(branchId)?.conversationId != id || getConversation(id) == null) return null
+        val total = getBranchRowCount(branchId)
+        val start = (offset ?: ((messageId?.let { getBranchMessageIndex(branchId, it) } ?: 0) - 20))
+            .coerceIn(0, (total - 1).coerceAtLeast(0))
+        return BranchPreviewPage(getBranchPreviewRows(branchId, start, 50), start, total)
+    }
+
+    @Query("SELECT COUNT(*) FROM branch_messages bm LEFT JOIN messages m ON m.id = bm.messageId " +
+        "LEFT JOIN message_versions v ON v.id = bm.versionId WHERE bm.branchId = :branchId AND " +
+        "(m.id IS NULL OR m.conversationId != :id OR (m.deleted = 0 AND " +
+        "(v.id IS NULL OR v.messageId != m.id OR v.status = 'DRAFT')))")
+    suspend fun countUnusableBranchRows(id: String, branchId: String): Int
+
+    @Transaction
+    suspend fun switchToBranch(id: String, targetBranchId: String, expectedActiveBranchId: String, expectedRevision: Long): BranchSwitchResult {
+        val c = getConversation(id) ?: return BranchSwitchResult.TARGET_MISSING
+        val target = getBranch(targetBranchId) ?: return BranchSwitchResult.TARGET_MISSING
+        if (target.conversationId != id) return BranchSwitchResult.TARGET_MISSING
+        if (c.activeBranchId != expectedActiveBranchId || c.historyRevision != expectedRevision) return BranchSwitchResult.HISTORY_CHANGED
+        if (countUnusableBranchRows(id, targetBranchId) != 0) return BranchSwitchResult.INCOMPLETE
+        if (targetBranchId != c.activeBranchId) activateBranch(id, targetBranchId, System.currentTimeMillis())
+        return BranchSwitchResult.SUCCESS
+    }
+
     @Query("SELECT * FROM conversations ORDER BY updatedAt DESC")
     fun observeConversations(): Flow<List<ConversationEntity>>
 

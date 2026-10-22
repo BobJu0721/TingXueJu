@@ -61,12 +61,16 @@ class AppContainer(
 class AppViewModelFactory(private val appContainer: AppContainer) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>, extras: androidx.lifecycle.viewmodel.CreationExtras): T {
-        return if (modelClass.isAssignableFrom(ChatViewModel::class.java))
-            ChatViewModel(appContainer, extras.createSavedStateHandle()) as T else create(modelClass)
+        return when {
+            modelClass.isAssignableFrom(ChatViewModel::class.java) -> ChatViewModel(appContainer, extras.createSavedStateHandle()) as T
+            modelClass.isAssignableFrom(BranchTreeViewModel::class.java) -> BranchTreeViewModel(appContainer, extras.createSavedStateHandle()) as T
+            else -> create(modelClass)
+        }
     }
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T = when {
         modelClass.isAssignableFrom(ChatViewModel::class.java) -> ChatViewModel(appContainer)
+        modelClass.isAssignableFrom(BranchTreeViewModel::class.java) -> BranchTreeViewModel(appContainer)
         modelClass.isAssignableFrom(SettingsViewModel::class.java) -> SettingsViewModel(appContainer)
         modelClass.isAssignableFrom(ProfilesViewModel::class.java) -> ProfilesViewModel(appContainer)
         modelClass.isAssignableFrom(WorldSetsViewModel::class.java) -> WorldSetsViewModel(appContainer)

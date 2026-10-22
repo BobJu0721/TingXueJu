@@ -126,6 +126,33 @@ class ChatViewModel(private val appContainer: AppContainer, private val savedSta
     private val _scrollToMessageId = MutableStateFlow<String?>(null)
     val scrollToMessageId = _scrollToMessageId.asStateFlow()
     fun consumeScrollToMessage() { _scrollToMessageId.value = null }
+    private val _branchLocation = MutableStateFlow<BranchLocation?>(null)
+    val branchLocation = _branchLocation.asStateFlow()
+    private val _isSwitchingBranch = MutableStateFlow(false)
+    val isSwitchingBranch = _isSwitchingBranch.asStateFlow()
+    fun consumeBranchLocation(requestId: String) {
+        if (_branchLocation.value?.requestId == requestId) _branchLocation.value = null
+    }
+
+    fun switchToBranch(snapshot: BranchTreeSnapshot, target: String, messageId: String?, onResult: (BranchSwitchResult) -> Unit) {
+        if (historyMutationBlocked() || _selectedConversationId.value != snapshot.conversationId) return
+        _isSwitchingBranch.value = true
+        viewModelScope.launch {
+            try {
+                val result = conversationRepository.switchToBranch(snapshot.conversationId, target, snapshot.activeBranchId, snapshot.revision)
+                if (result == BranchSwitchResult.SUCCESS && _selectedConversationId.value == snapshot.conversationId) {
+                    refreshConversation(snapshot.conversationId)
+                    closeSearch()
+                    _scrollToMessageId.value = null
+                    val location = withContext(Dispatchers.Default) { com.aichat.app.domain.branchLocationMessage(snapshot, target, messageId) }
+                    _branchLocation.value = BranchLocation(snapshot.conversationId, target, location, java.util.UUID.randomUUID().toString())
+                }
+                onResult(result)
+            } catch (e: CancellationException) { throw e
+            } catch (e: Exception) { onResult(BranchSwitchResult.INCOMPLETE)
+            } finally { _isSwitchingBranch.value = false }
+        }
+    }
 
     private val _input = MutableStateFlow(savedState["chatInput"] ?: "")
     val input = _input.asStateFlow()
@@ -333,7 +360,7 @@ class ChatViewModel(private val appContainer: AppContainer, private val savedSta
     fun openModels() { navigate(Screen.MODELS) }
 
     fun selectConversation(id: String) {
-        if (_isSavingChatInfo.value) return
+        if (_isSavingChatInfo.value || _isSwitchingBranch.value) return
         if (_selectedConversationId.value != id && _draftReply.value != null) closeDraftReply()
         if (_selectedConversationId.value != id) closeSearch()
         _selectedConversationId.value = id
@@ -343,6 +370,7 @@ class ChatViewModel(private val appContainer: AppContainer, private val savedSta
     }
 
     fun deleteConversation(conversation: ConversationEntity) {
+        if (_isSwitchingBranch.value) return
         viewModelScope.launch {
             conversationRepository.deleteConversation(conversation)
             if (_selectedConversationId.value == conversation.id) {
@@ -652,7 +680,7 @@ class ChatViewModel(private val appContainer: AppContainer, private val savedSta
     }
 
     private fun historyMutationBlocked(): Boolean = _isStreaming.value || _isSummarizingConversation.value ||
-        _isSavingChatInfo.value || draftJob?.isCompleted == false
+        _isSavingChatInfo.value || _isSwitchingBranch.value || draftJob?.isCompleted == false
 
     fun confirmPendingMutation() {
         val pending = _pendingMutation.value ?: return
