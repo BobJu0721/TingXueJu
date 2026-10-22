@@ -125,6 +125,7 @@ private object AppRoute {
     const val WORLD_SET_EDIT = "world_set_edit"
     const val NEW_CHAT = "new_chat"
     const val CHAT_STORY = "chat_story"
+    const val CHAT_BRANCHES = "chat_branches"
     const val CHAT_MEMORY = "chat_memory"
     const val CHAT_REPLY_SETTINGS = "chat_reply_settings"
     const val CHAT_APPEARANCE = "chat_appearance"
@@ -196,6 +197,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
             Screen.WORLD_SET_EDIT -> navController.navigate(AppRoute.WORLD_SET_EDIT) { launchSingleTop = true }
             Screen.NEW_CHAT -> navController.navigate(AppRoute.NEW_CHAT) { launchSingleTop = true }
             Screen.CHAT_STORY -> navController.navigate(AppRoute.CHAT_STORY) { launchSingleTop = true }
+            Screen.CHAT_BRANCHES -> navController.navigate(AppRoute.CHAT_BRANCHES) { launchSingleTop = true }
             Screen.CHAT_MEMORY -> navController.navigate(AppRoute.CHAT_MEMORY) { launchSingleTop = true }
             Screen.CHAT_REPLY_SETTINGS -> navController.navigate(AppRoute.CHAT_REPLY_SETTINGS) { launchSingleTop = true }
             Screen.CHAT_APPEARANCE -> navController.navigate(AppRoute.CHAT_APPEARANCE) { launchSingleTop = true }
@@ -307,6 +309,10 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                 page(AppRoute.WORLD_SET_EDIT) { WorldSetEditScreen(worldSetsViewModel, language) { navController.navigateUp() } }
                 page(AppRoute.NEW_CHAT) { NewChatScreen(newChatViewModel, { navController.navigateUp() }, language) }
                 page(AppRoute.CHAT_STORY) { ChatStoryScreen(chatViewModel, language) { navController.navigateUp() } }
+                page(AppRoute.CHAT_BRANCHES) {
+                    val treeViewModel: BranchTreeViewModel = composeViewModel(factory = viewModelFactory)
+                    ChatBranchScreen(treeViewModel, chatViewModel, language) { navController.navigateUp() }
+                }
                 page(AppRoute.CHAT_MEMORY) { ChatMemoryScreen(chatViewModel, language) { navController.navigateUp() } }
                 page(AppRoute.CHAT_REPLY_SETTINGS) { ChatReplySettingsScreen(chatViewModel, language) { navController.navigateUp() } }
                 page(AppRoute.CHAT_APPEARANCE) { ChatAppearanceScreen(chatViewModel, language) { navController.navigateUp() } }

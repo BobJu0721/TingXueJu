@@ -60,7 +60,9 @@ import kotlin.math.roundToInt
 @Composable
 internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack: () -> Unit) {
     val routeSnapshot by viewModel.routeSnapshot.collectAsStateWithLifecycle()
-    val messages = routeSnapshot.messages
+    val branchLocation by viewModel.branchLocation.collectAsStateWithLifecycle()
+    val waitingForBranch = branchLocation?.let { it.branchId != routeSnapshot.branchId || it.conversationId != routeSnapshot.conversationId } == true
+    val messages = if (waitingForBranch) emptyList() else routeSnapshot.messages
     // 版本與生成資料取自同一份路線快照，不會和訊息清單分屬不同路線。
     val versions = routeSnapshot.versions
     val contexts = routeSnapshot.contexts
@@ -82,6 +84,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
     val chatScope = rememberCoroutineScope()
     var lastOpenedId by rememberSaveable { mutableStateOf<String?>(null) }
     var autoFollow by rememberSaveable(selectedId) { mutableStateOf(true) }
+    var branchPaused by rememberSaveable(selectedId) { mutableStateOf(false) }
     var anchorId by rememberSaveable(selectedId) { mutableStateOf<String?>(null) }
     var anchorVersion by rememberSaveable(selectedId) { mutableStateOf<String?>(null) }
     var anchorBranch by rememberSaveable(selectedId) { mutableStateOf<String?>(null) }
@@ -153,7 +156,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                 anchorBranch = routeSnapshot.branchId
                 anchorIndex = index
                 anchorOffset = offset
-                if (!searchActive) autoFollow = listState.isNearBottom(bottomAnchorIndex)
+                if (!searchActive && branchLocation == null && !branchPaused) autoFollow = listState.isNearBottom(bottomAnchorIndex)
             }
         }
     }
@@ -163,7 +166,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
             .collect { showScrollToBottom = it }
     }
     LaunchedEffect(selectedId, messages.size) {
-        if (!restored && selectedId != null && routeSnapshot.conversationId == selectedId && messages.isNotEmpty()) {
+        if (branchLocation == null && !restored && selectedId != null && routeSnapshot.conversationId == selectedId && messages.isNotEmpty()) {
             if (selectedId == lastOpenedId && !autoFollow) {
                 val index = messages.indexOfFirst { it.id == anchorId }.takeIf { it >= 0 }
                     ?: anchorIndex.coerceIn(0, messages.lastIndex)
@@ -178,10 +181,10 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
         }
     }
     LaunchedEffect(messages.lastOrNull()?.id, messages.lastOrNull()?.content, autoFollow) {
-        if (restored && messages.isNotEmpty() && autoFollow && !searchActive) listState.scrollToItem(bottomAnchorIndex)
+        if (branchLocation == null && restored && messages.isNotEmpty() && autoFollow && !searchActive) listState.scrollToItem(bottomAnchorIndex)
     }
     LaunchedEffect(imeBottom) {
-        if (restored && autoFollow && imeBottom > 0 && messages.isNotEmpty() && !searchActive) {
+        if (branchLocation == null && restored && autoFollow && imeBottom > 0 && messages.isNotEmpty() && !searchActive) {
             yield()
             listState.scrollToItem(bottomAnchorIndex)
         }
@@ -197,7 +200,20 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
         }
     }
     // 切換版本或編輯後定位在被切換的訊息，不要跳到很遠的尾端。
+    LaunchedEffect(branchLocation, routeSnapshot) {
+        val location = branchLocation ?: return@LaunchedEffect
+        if (location.conversationId != selectedId || routeSnapshot.conversationId != location.conversationId ||
+            routeSnapshot.branchId != location.branchId) return@LaunchedEffect
+        autoFollow = false
+        branchPaused = true
+        val index = messages.indexOfFirst { it.id == location.messageId }.coerceAtLeast(0)
+        listState.scrollToItem(index)
+        restored = true
+        lastOpenedId = selectedId
+        viewModel.consumeBranchLocation(location.requestId)
+    }
     LaunchedEffect(scrollTarget, messages) {
+        if (branchLocation != null) return@LaunchedEffect
         val id = scrollTarget ?: return@LaunchedEffect
         val index = messages.indexOfFirst { it.id == id }
         if (index >= 0) {
@@ -352,7 +368,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                 }
             },
             bottomBar = {
-                MessageComposer(viewModel, language) { kind ->
+                MessageComposer(viewModel, language, onSend = { branchPaused = false; autoFollow = true }) { kind ->
                     when (kind) {
                         MessageKind.NARRATION -> narrationDraft = ""
                         MessageKind.PRIVATE_NOTE -> noteDraft = ""
@@ -377,7 +393,8 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (messages.isEmpty()) EmptyState(language.pick("開始聊天", "开始聊天"), language.pick("輸入訊息，或從角色頁建立帶有開場白的對話。", "输入消息，或从角色页建立带有开场白的对话。"))
+                if (waitingForBranch) CircularProgressIndicator(Modifier.align(Alignment.Center))
+                else if (messages.isEmpty()) EmptyState(language.pick("開始聊天", "开始聊天"), language.pick("輸入訊息，或從角色頁建立帶有開場白的對話。", "输入消息，或从角色页建立带有开场白的对话。"))
                 else LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().testTag("chat-message-list"),
@@ -439,6 +456,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
                         onClick = {
                             if (messages.isNotEmpty()) {
                                 actionMessageId = null
+                                branchPaused = false
                                 autoFollow = true
                                 chatScope.launch { listState.animateScrollToItem(bottomAnchorIndex) }
                             }
@@ -588,6 +606,7 @@ internal fun ChatScreen(viewModel: ChatViewModel, language: AppLanguage, onBack:
 
 private fun chatSettingActions(language: AppLanguage) = listOf(
     Triple(Screen.CHAT_STORY, language.pick("劇情設定", "剧情设置"), Icons.Default.AutoStories),
+    Triple(Screen.CHAT_BRANCHES, language.pick("對話分支", "对话分支"), Icons.Default.AccountTree),
     Triple(Screen.CHAT_MEMORY, language.pick("對話記憶", "对话记忆"), Icons.Default.History),
     Triple(Screen.CHAT_REPLY_SETTINGS, language.pick("回覆設定", "回复设置"), Icons.Default.Tune),
     Triple(Screen.CHAT_APPEARANCE, language.pick("外觀設定", "外观设置"), Icons.Default.Image),
@@ -697,7 +716,7 @@ private fun AuthoredEditorDialog(
 
 
 @Composable
-private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage, onCompose: (MessageKind) -> Unit) {
+private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage, onSend: () -> Unit, onCompose: (MessageKind) -> Unit) {
     val input by viewModel.input.collectAsStateWithLifecycle()
     val streaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val focusManager = LocalFocusManager.current
@@ -766,6 +785,7 @@ private fun MessageComposer(viewModel: ChatViewModel, language: AppLanguage, onC
                         .clickable {
                             if (streaming) viewModel.stopStreaming()
                             else {
+                                onSend()
                                 viewModel.send()
                                 focusManager.clearFocus()
                                 keyboard?.hide()
