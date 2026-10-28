@@ -21,10 +21,13 @@ class ReasoningPolicyTest {
         Case(Provider.GROQ, "llama-3.3-70b-versatile", null, false),
         Case(Provider.CEREBRAS, "llama-3.3-70b", null, false),
         Case(Provider.CLOUDFLARE, "@cf/meta/llama-3.1-8b-instruct", null, false),
-        Case(Provider.ZEN, "deepseek-v4-flash", """{"reasoning_effort":"medium"}""", true),
-        Case(Provider.ZEN, "glm-5", """{"reasoning_effort":"medium"}""", true),
-        Case(Provider.ZEN, "kimi-k2.6", """{"reasoning_effort":"medium"}""", true),
-        Case(Provider.ZEN, "qwen3.6-plus", """{"reasoning_effort":"medium"}""", true),
+        Case(Provider.ZEN, "big-pickle", """{"reasoning_effort":"medium"}""", true),
+        Case(Provider.ZEN, "glm-5.3-flash-free", """{"reasoning_effort":"medium"}""", true),
+        Case(Provider.ZEN, "mimo-v2.6-flash-free", """{"reasoning_effort":"medium"}""", true),
+        Case(Provider.ZEN, "deepseek-v4.1-flash-free", """{"reasoning_effort":"medium"}""", true),
+        // 已下架 / 不在免費名單：退回 UNKNOWN，只能 AUTO。
+        Case(Provider.ZEN, "glm-5", null, false),
+        Case(Provider.ZEN, "kimi-k2.6", null, false),
         Case(Provider.ZEN, "unlisted-model", null, false),
         Case(Provider.GROQ, "new-qwen-gpt-oss-model", null, false),
         Case(Provider.CEREBRAS, "future-model", null, false),
@@ -116,7 +119,7 @@ class ReasoningPolicyTest {
         AiApiClient().chatPayload(settings, listOf(ApiChatMessage("user", "test")), true, mode)
 
     @Test fun zenSendsEffortOnlyAndZenKeyIsPublicConstant() {
-        val settings = AppSettings(provider = Provider.ZEN, model = "deepseek-v4-flash")
+        val settings = AppSettings(provider = Provider.ZEN, model = "big-pickle")
         val off = payload(settings, ReasoningMode.OFF)
         assertEquals("none", off.getString("reasoning_effort"))
         assertFalse(off.has("reasoning"))
@@ -130,14 +133,14 @@ class ReasoningPolicyTest {
 
     @Test fun zenGateToolsAndNoToolCalls() {
         val tools = AiApiClient().chatPayload(
-            AppSettings(provider = Provider.ZEN, model = "deepseek-v4-flash"),
+            AppSettings(provider = Provider.ZEN, model = "big-pickle"),
             listOf(ApiChatMessage("user", "test")), true, ReasoningMode.AUTO,
         ).getJSONArray("tools")
         assertEquals(setOf("bash", "read"), (0 until tools.length()).mapTo(mutableSetOf()) {
             tools.getJSONObject(it).getJSONObject("function").getString("name")
         })
         assertEquals("none", AiApiClient().chatPayload(
-            AppSettings(provider = Provider.ZEN, model = "deepseek-v4-flash"),
+            AppSettings(provider = Provider.ZEN, model = "big-pickle"),
             listOf(ApiChatMessage("user", "test")), true, ReasoningMode.AUTO,
         ).getString("tool_choice"))
     }

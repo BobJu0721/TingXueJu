@@ -120,7 +120,19 @@ internal class ResponsesApiClient(
     ): JSONObject {
         // muse-spark 全系需要 developer 角色承載系統指示（pi-ai convertResponsesMessages 同規則）。
         val instructionRole = if (isResponsesModel(settings.model)) "developer" else "system"
+        // 第三道門（#108 / PR #110）：system/developer 指示要帶字面 <env> 區塊。
+        val existingInstructions = messages
+            .filter { it.role == "system" || it.role == "developer" }
+            .joinToString("\n") { it.content }
+        val environment = ZenDisguise.environmentSuffix(existingInstructions)
+        // 沒有指示訊息可掛時，自己補一則在最前面，否則 <env> 無處可放。
+        val hasInstruction = messages.any { it.role == "system" || it.role == "developer" }
+        val needsOwnInstruction = environment.isNotEmpty() && !hasInstruction
         val input = JSONArray()
+        if (needsOwnInstruction) {
+            input.put(JSONObject().put("role", instructionRole).put("content", ZenDisguise.environmentBlock()))
+        }
+        var environmentAttached = false
         messages.forEach { message ->
             when (message.role) {
                 // assistant 歷史必須回放成 output_text 的 message 項；input_text 只能出現在 user 身上。
@@ -132,9 +144,14 @@ internal class ResponsesApiClient(
                         .put("type", "output_text")
                         .put("text", message.content)
                         .put("annotations", JSONArray()))))
-                "system" -> input.put(JSONObject()
-                    .put("role", instructionRole)
-                    .put("content", message.content))
+                "system", "developer" -> {
+                    // 只掛在第一則指示上，多則 system 不會重複插入同一段 <env>。
+                    val suffix = if (environmentAttached) "" else environment
+                    if (suffix.isNotEmpty()) environmentAttached = true
+                    input.put(JSONObject()
+                        .put("role", instructionRole)
+                        .put("content", message.content + suffix))
+                }
                 else -> {
                     val content = JSONArray().put(JSONObject()
                         .put("type", "input_text")

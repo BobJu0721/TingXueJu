@@ -24,7 +24,9 @@ enum class Provider(
         "https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/v1",
         "@cf/meta/llama-3.1-8b-instruct",
     ),
-    ZEN("OpenCode Zen（免費通道）", "https://opencode.ai/inference/v1", "deepseek-v4-flash"),
+    // 推理端點跟官方 v2 CLI 走 /inference/openai/v1（PR #110）；模型列表仍在
+    // /inference/v1/models —— 前者 404，見 resolvedModelsUrl 的特例。
+    ZEN("OpenCode Zen（免費通道）", "https://opencode.ai/inference/openai/v1", "big-pickle"),
     CUSTOM("自訂端點", "", "");
 
     companion object {
@@ -72,10 +74,13 @@ data class AppSettings(
         }.trimEnd('/')
 
     val resolvedModelsUrl: String
-        get() = if (provider == Provider.CLOUDFLARE) {
-            "${resolvedBaseUrl.removeSuffix("/v1")}/models/search?format=openrouter&per_page=100"
-        } else {
-            "$resolvedBaseUrl/models"
+        get() = when {
+            provider == Provider.CLOUDFLARE ->
+                "${resolvedBaseUrl.removeSuffix("/v1")}/models/search?format=openrouter&per_page=100"
+            // Zen 的模型列表只在 /inference/v1 下；/inference/openai/v1/models 是 404。
+            provider == Provider.ZEN ->
+                "https://opencode.ai/inference/v1/models"
+            else -> "$resolvedBaseUrl/models"
         }
 
     val usesUnsafeHttp: Boolean

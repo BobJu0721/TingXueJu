@@ -14,25 +14,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResponsesApiClientTest {
-    private val settings = AppSettings(provider = Provider.ZEN, model = "muse-spark-1.3-contributor-free")
     private val messages = listOf(ApiChatMessage("user", "hi"))
 
     private fun client() = ResponsesApiClient(OkHttpClient(), Mutex()) { _, _, url, _ ->
         okhttp3.Request.Builder().url("https://example.com")
     }
 
+    private val settings get() = AppSettings(provider = Provider.ZEN, model = "muse-spark-1.3-contributor-free")
+
     @Test fun payloadMatchesPiAiResponsesShape() {
-        // 基底已改為 /inference/v1（#74）：對話、模型列表與探測都跟著走。
-        assertEquals("https://opencode.ai/inference/v1", Provider.ZEN.baseUrl)
+        // 推理端點跟官方 v2 CLI 走 /inference/openai/v1（PR #110）；模型列表留在 /inference/v1。
+        assertEquals("https://opencode.ai/inference/openai/v1", Provider.ZEN.baseUrl)
+        assertEquals("https://opencode.ai/inference/v1/models", settings.resolvedModelsUrl)
         val body = client().responsesPayload(settings, messages, ReasoningMode.ON, null, "hi")
         assertEquals("muse-spark-1.3-contributor-free", body.getString("model"))
         assertTrue(body.getBoolean("stream"))
         assertEquals(false, body.getBoolean("store"))
-        // input 是陣列，每則 content 是 input_text 塊。
+        // input 是陣列；沒有指示訊息時先補一則帶 <env> 的 developer，再放對話。
         val input = body.getJSONArray("input")
-        assertEquals(1, input.length())
-        assertEquals("user", input.getJSONObject(0).getString("role"))
-        val content = input.getJSONObject(0).getJSONArray("content")
+        assertEquals(2, input.length())
+        assertEquals("developer", input.getJSONObject(0).getString("role"))
+        assertTrue(input.getJSONObject(0).getString("content").contains("<env>"))
+        assertEquals("user", input.getJSONObject(1).getString("role"))
+        val content = input.getJSONObject(1).getJSONArray("content")
         assertEquals("input_text", content.getJSONObject(0).getString("type"))
         assertEquals("hi", content.getJSONObject(0).getString("text"))
         // reasoning 是物件寫法，不是 reasoning_effort 字串。
@@ -56,9 +60,10 @@ class ResponsesApiClientTest {
         val body = client().responsesPayload(settings, history, ReasoningMode.AUTO, null, "hi")
         val input = body.getJSONArray("input")
         assertEquals(3, input.length())
-        // system 走 developer（muse-spark 全系）。
+        // system 走 developer（muse-spark 全系），並在結尾補上 <env>。
         assertEquals("developer", input.getJSONObject(0).getString("role"))
-        assertEquals("sys", input.getJSONObject(0).getString("content"))
+        assertTrue(input.getJSONObject(0).getString("content").startsWith("sys"))
+        assertTrue(input.getJSONObject(0).getString("content").contains("<env>"))
         // user 维持 input_text。
         assertEquals("input_text", input.getJSONObject(1).getJSONArray("content").getJSONObject(0).getString("type"))
         // assistant 歷史回放成 output_text 的 message 項。
@@ -200,16 +205,90 @@ class ResponsesApiClientTest {
     }
 
     @Test fun gateToolsCarryNonEmptyProperties() {
-        // #74：空 parameters.properties 會被拒；補可選字串欄位。
+        // #75：空 parameters.properties 會被拒，而且比不廣播更糟；官方工具名要帶真實 schema。
         for (tool in listOf(ZenDisguise.gateTool("bash"), ZenDisguise.responsesGateTool("read"))) {
             val params = tool.optJSONObject("function")?.optJSONObject("parameters")
                 ?: tool.optJSONObject("parameters")!!
             assertTrue(params.optJSONObject("properties")!!.keys().asSequence().toList().isNotEmpty())
         }
+        // bash 帶 command、read 帶 filePath，兩者都要求 required。
+        val bash = ZenDisguise.gateTool("bash").getJSONObject("function").getJSONObject("parameters")
+        assertTrue(bash.getJSONObject("properties").has("command"))
+        assertEquals("command", bash.getJSONArray("required").getString(0))
+        val read = ZenDisguise.gateTool("read").getJSONObject("function").getJSONObject("parameters")
+        assertTrue(read.getJSONObject("properties").has("filePath"))
+        assertEquals("filePath", read.getJSONArray("required").getString(0))
         // 真實工具的非空 schema 原樣保留。
         val real = JSONObject().put("type", "object").put("properties",
             JSONObject().put("command", JSONObject().put("type", "string")))
         assertTrue(ZenDisguise.gateParameters(real) === real)
         assertEquals(1, ZenDisguise.gateParameters(real).optJSONObject("properties")!!.length())
+    }
+
+    @Test fun userAgentUsesTheV2CliShape() {
+        // #108 / PR #110：舊的 opencode/1.18.31 (...) 在新門下仍 429。
+        val ua = ZenDisguise.headers("ua regression")["User-Agent"].orEmpty()
+        assertEquals("opencode/latest/2.2.0/cli", ua)
+        // 舊格式是三段帶括號；v2 是 channel/version/client 四段。
+        assertFalse(ua.contains("("))
+        assertEquals(4, ua.split("/").size)
+    }
+
+    @Test fun environmentBlockIsLiteralAndIdempotent() {
+        // 實測：同樣內容寫成純文字仍 429，只有字面 <env> 標籤過。
+        val block = ZenDisguise.environmentBlock()
+        assertTrue(block.startsWith("<env>"))
+        assertTrue(block.endsWith("</env>"))
+        assertTrue(block.contains("Working directory: ."))
+        // 已經有 <env> 就不重複插。
+        assertEquals("", ZenDisguise.environmentSuffix("system prompt\n<env>\n  Platform: x\n</env>"))
+        assertTrue(ZenDisguise.environmentSuffix("system prompt").contains("<env>"))
+        // 完全沒有指示時仍要補。
+        assertTrue(ZenDisguise.environmentSuffix("").contains("<env>"))
+    }
+
+    @Test fun chatPayloadCarriesEnvironmentBlockForZenOnly() {
+        val zen = AiApiClient().chatPayload(
+            AppSettings(provider = Provider.ZEN, model = "big-pickle"),
+            listOf(ApiChatMessage("system", "you are helpful"), ApiChatMessage("user", "hi")),
+            true, ReasoningMode.AUTO,
+        )
+        val zenMessages = zen.getJSONArray("messages")
+        val system = zenMessages.getJSONObject(0).getString("content")
+        assertEquals("system", zenMessages.getJSONObject(0).getString("role"))
+        assertTrue(system.startsWith("you are helpful"))
+        assertTrue(system.contains("<env>"))
+        // 沒有 system 時自己補一則在最前面，user 訊息不動。
+        val noSystem = AiApiClient().chatPayload(
+            AppSettings(provider = Provider.ZEN, model = "big-pickle"),
+            listOf(ApiChatMessage("user", "hi")), true, ReasoningMode.AUTO,
+        ).getJSONArray("messages")
+        assertEquals(2, noSystem.length())
+        assertEquals("system", noSystem.getJSONObject(0).getString("role"))
+        assertTrue(noSystem.getJSONObject(0).getString("content").contains("<env>"))
+        assertEquals("hi", noSystem.getJSONObject(1).getString("content"))
+        // 其他供應商完全不插。
+        val groq = AiApiClient().chatPayload(
+            AppSettings(provider = Provider.GROQ, model = "openai/gpt-oss-120b"),
+            listOf(ApiChatMessage("system", "you are helpful"), ApiChatMessage("user", "hi")),
+            true, ReasoningMode.AUTO,
+        )
+        assertFalse(groq.getJSONArray("messages").getJSONObject(0).getString("content").contains("<env>"))
+    }
+
+    @Test fun responsesPayloadCarriesEnvironmentOnInstructionMessage() {
+        val withSystem = client().responsesPayload(
+            settings, listOf(ApiChatMessage("system", "sys"), ApiChatMessage("user", "hi")),
+            ReasoningMode.AUTO, null, "hi",
+        ).getJSONArray("input")
+        assertEquals("developer", withSystem.getJSONObject(0).getString("role"))
+        assertTrue(withSystem.getJSONObject(0).getString("content").contains("<env>"))
+        // 沒有指示訊息時補一則 developer 在最前面。
+        val withoutSystem = client().responsesPayload(settings, messages, ReasoningMode.AUTO, null, "hi")
+            .getJSONArray("input")
+        assertEquals(2, withoutSystem.length())
+        assertEquals("developer", withoutSystem.getJSONObject(0).getString("role"))
+        assertTrue(withoutSystem.getJSONObject(0).getString("content").contains("<env>"))
+        assertEquals("user", withoutSystem.getJSONObject(1).getString("role"))
     }
 }

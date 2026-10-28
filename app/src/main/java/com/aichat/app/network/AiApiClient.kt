@@ -211,6 +211,8 @@ class AiApiClient(
             messages.forEach { message ->
                 put(JSONObject().put("role", message.role).put("content", message.content))
             }
+            // 第三道門（#108 / PR #110）：system 指示要帶字面 <env> 區塊。
+            if (settings.provider == Provider.ZEN) ZenDisguise.applyEnvironment(this)
         })
         .apply {
             if (settings.provider == Provider.ZEN) {

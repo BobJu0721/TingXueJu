@@ -1,5 +1,6 @@
 package com.aichat.app.network
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
@@ -15,9 +16,27 @@ import java.util.UUID
  * `ses_` 後 12 位 hex 不是雜湊，是反轉的牆鐘 `~(nowMillis * 0x1000 + 1)`，
  * 上游解回 `counter = ~hex & 0xfff`，只接受 0～63。雜湊前綴約 98.5% 被拒。
  * 同一對話只生成一次，重試與後續輪次重用（上游按 session 分配配額與快取）。
+ *
+ * 2026-10-28 的第三道門（opencode2dsh #108 / PR #110）：匿名推理請求除了形狀，
+ * 還要比對「是不是官方 v2 CLI 在發」。實測在本機同時段：Node／curl／JDK 三種
+ * TLS 堆疊帶同樣 body 全 429，只有 Bun 原生 fetch 200；再消融後真正的開關是
+ * ① v2 形式的 UA、② body 裡要有字面 `<env>…</env>` 區塊（換成純文字同樣 429）。
+ * 這裡照搬這兩項；傳輸層能不能過要看 Android 的 Conscrypt 是否同屬放行指紋。
  */
 internal object ZenDisguise {
-    private const val USER_AGENT = "opencode/1.18.31 (windows x86_64)"
+    /**
+     * v2 形式：`opencode/<channel>/<version>/<client>`（App.useragent）。
+     * 舊的 `opencode/1.18.31 (windows x86_64)` 在新門下仍 429。
+     */
+    private const val USER_AGENT = "opencode/latest/2.2.0/cli"
+
+    /**
+     * `<env>` 區塊裡的 Platform。實測有效的那組是 win32；上游是否驗值未知，
+     * 因此沿用已驗證的值，不填 android。
+     */
+    private const val ENVIRONMENT_PLATFORM = "win32"
+
+    private val ENV_BLOCK = Regex("<env>[\\s\\S]*?</env>")
 
     /** session 快取上限；同一對話重用一個 ID，上限外逐出最舊。 */
     private const val SESSION_MEMO_LIMIT = 1024
@@ -62,22 +81,23 @@ internal object ZenDisguise {
     /**
      * body 形狀門用的佔位 tool；配合 tool_choice=none，模型不會真的呼叫。
      *
-     * 上游實測（#74）：空 parameters.properties 會被拒；補一個可選字串欄位。
-     * 真實工具的非空 schema 不動（見 withGateParameters 的保留邏輯）。
+     * 上游實測（#75）：官方工具名帶空 `parameters.properties` 會被拒，而且比不廣播更糟；
+     * 因此這裡直接用 CLI 自己的真實定義（描述、必填欄位都照抄），而非空 stub。
+     * 真實工具的非空 schema 不動（見 gateParameters 的保留邏輯）。
      */
     fun gateTool(name: String): JSONObject = JSONObject()
         .put("type", "function")
         .put("function", JSONObject()
             .put("name", name)
-            .put("description", "Reserved for the host runtime; do not call it.")
-            .put("parameters", gateParameters()))
+            .put("description", descriptionOf(name))
+            .put("parameters", gateParameters(schemaOf(name))))
 
     /** Responses 專用：扁平 function tool，沒有 function 包裝層，配合 tool_choice=auto。 */
     fun responsesGateTool(name: String): JSONObject = JSONObject()
         .put("type", "function")
         .put("name", name)
-        .put("description", "Reserved for the host runtime; do not call it.")
-        .put("parameters", gateParameters())
+        .put("description", descriptionOf(name))
+        .put("parameters", gateParameters(schemaOf(name)))
 
     /** 空佔位 schema 補一個可選字串欄位；非空的真實 schema 原樣保留。 */
     fun gateParameters(existing: JSONObject? = null): JSONObject {
@@ -94,6 +114,77 @@ internal object ZenDisguise {
             .put("properties", JSONObject().put("input", JSONObject()
                 .put("type", "string")
                 .put("description", "Reserved for the host runtime; do not call this placeholder tool.")))
+    }
+
+    /** CLI 自己的 gate 工具定義（#75 從官方請求逐字抄下）。 */
+    private fun schemaOf(name: String): JSONObject = when (name) {
+        "bash" -> JSONObject()
+            .put("type", "object")
+            .put("properties", JSONObject()
+                .put("command", JSONObject()
+                    .put("type", "string")
+                    .put("description", "The command to run.")))
+            .put("required", JSONArray().put("command"))
+            .put("additionalProperties", false)
+        "read" -> JSONObject()
+            .put("type", "object")
+            .put("properties", JSONObject()
+                .put("filePath", JSONObject()
+                    .put("type", "string")
+                    .put("description", "Absolute path of the file to read."))
+                .put("offset", JSONObject()
+                    .put("type", "integer")
+                    .put("description", "Line number to start reading from."))
+                .put("limit", JSONObject()
+                    .put("type", "integer")
+                    .put("description", "Maximum number of lines to read.")))
+            .put("required", JSONArray().put("filePath"))
+            .put("additionalProperties", false)
+        else -> JSONObject()
+            .put("type", "object")
+            .put("properties", JSONObject()
+                .put("input", JSONObject().put("type", "string")))
+    }
+
+    private fun descriptionOf(name: String): String = when (name) {
+        "bash" -> "Run a shell command in the project workspace."
+        "read" -> "Read a file from the filesystem."
+        else -> "Reserved for the host runtime; do not call it."
+    }
+
+    /**
+     * 第三道門（#108 / PR #110）：系統指示裡必須出現字面 `<env>…</env>`。
+     *
+     * 實測：把同樣的內容寫成「Working directory: .」純文字仍 429，只有 `<env>` 標籤過。
+     * 已有 `<env>` 區塊就原樣不動（避免覆蓋呼叫端自己的環境描述）。
+     */
+    fun environmentBlock(): String =
+        "<env>\n  Working directory: .\n  Platform: $ENVIRONMENT_PLATFORM\n</env>"
+
+    /** 缺 `<env>` 才補；`existing` 是該請求目前所有 system/developer 指示的合併文字。 */
+    fun environmentSuffix(existing: String): String =
+        if (ENV_BLOCK.containsMatchIn(existing)) "" else "\n\n${environmentBlock()}"
+
+    /** chat completions：把 `<env>` 併進既有的 system 訊息，沒有就插一則在最前面。 */
+    fun applyEnvironment(messages: JSONArray) {
+        val systems = (0 until messages.length())
+            .mapNotNull { messages.optJSONObject(it) }
+            .filter { it.optString("role") == "system" || it.optString("role") == "developer" }
+        val existing = systems.joinToString("\n") { it.optString("content") }
+        val suffix = environmentSuffix(existing)
+        if (suffix.isEmpty()) return
+        val target = systems.firstOrNull { it.optString("role") == "system" }
+        if (target != null) {
+            target.put("content", target.optString("content") + suffix)
+        } else {
+            // 只有 developer 或完全沒有 system 時，插一則新的在最前面。
+            val inserted = JSONObject().put("role", "system").put("content", environmentBlock())
+            val copy = JSONArray()
+            copy.put(inserted)
+            for (index in 0 until messages.length()) copy.put(messages.get(index))
+            for (index in messages.length() - 1 downTo 0) messages.remove(index)
+            for (index in 0 until copy.length()) messages.put(copy.get(index))
+        }
     }
 
     private fun newSession(seed: String): String {

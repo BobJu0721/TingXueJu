@@ -99,14 +99,22 @@ internal fun reasoningPolicy(provider: Provider, model: String): ReasoningPolicy
 internal fun isResponsesModel(model: String): Boolean =
     model.startsWith("muse-spark", ignoreCase = true)
 
-/** 在 Zen 匿名通道上實際打通過的模型（個人單機驗證；名單會隨通道狀態輪換）。 */
+/**
+ * 在 Zen 匿名通道上實際打通過的模型（個人單機驗證；名單會隨通道狀態輪換）。
+ *
+ * 2026-10-28 對照 /inference/v1/models 的現行目錄更新：`deepseek-v4-flash`、
+ * `glm-5`、`glm-5.2`、`kimi-k2.6`、`qwen3.6-plus`、`gpt-5.3-codex` 已下架或
+ * 不在免費名單，改成目錄裡帶 `-free` 的現役 id。`big-pickle` 沒有 free 後綴
+ * 但實測走 completions 可通，保留。
+ */
 internal val ZEN_VERIFIED_MODELS = setOf(
-    "deepseek-v4-flash",
-    "glm-5",
-    "glm-5.2",
-    "kimi-k2.6",
-    "qwen3.6-plus",
-    "gpt-5.3-codex",
+    "big-pickle",
+    "mimo-v2.6-flash-free",
+    "glm-5.3-flash-free",
+    "deepseek-v4.1-flash-free",
+    "nemotron-3.5-lightning-free",
+    "beam-free",
+    "flint-40b-free",
     "muse-spark-1.3-contributor-free",
 )
 

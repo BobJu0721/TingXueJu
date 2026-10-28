@@ -73,8 +73,10 @@
 
 - [下載測試版 APK：TingXueJu-oc-zen-test.apk](releases/TingXueJu-oc-zen-test.apk)（v1.17，versionCode 18）
 - 內含 `oc` 分支的 OpenCode Zen 免費通道（匿名 key `public`，免設定即用）。
-- 實測可用：`mimo-v2.6-flash-free`（chat 路徑）、`muse-spark-1.3-contributor-free`（responses 路徑）。其他模型名單會隨通道狀態輪換，能用才留。
+- 已跟進 2026-10-28 的新門檻（opencode2dsh #108 / PR #110）：v2 形式 UA、`<env>` 環境區塊、`/inference/openai/v1` 推理端點。
+- 實測可用：`big-pickle`、`mimo-v2.6-flash-free`、`glm-5.3-flash-free`、`deepseek-v4.1-flash-free`（chat 路徑）、`muse-spark-1.3-contributor-free`（responses 路徑）。其他模型名單會隨通道狀態輪換，能用才留。
 - 免費通道隨時可能限流、地區拒絕或失效；顯示的錯誤會跟「Key 無效」區分開。
+- ⚠️ 上游這一輪除了比對 UA 與 body 形狀，還要比對 TLS 指紋：桌面上只有 Bun（BoringSSL）放行，Node／curl／JDK 三種堆疊全被擋。Android 的 OkHttp 走 Conscrypt（同樣源自 BoringSSL），**能否放行尚未實測驗證**；額度按 IP 計，一次測試就會用掉配額。
 
 ## 快速開始
 
