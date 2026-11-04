@@ -59,8 +59,16 @@ internal class ResponsesApiClient(
     ) = requestMutex.withLock { withContext(Dispatchers.IO) {
         validateReasoningMode(settings, reasoningMode)
         val payload = responsesPayload(settings, messages, reasoningMode, options, firstUserText)
+        val wire = payload.toString()
+        ZenDiagnostics.logRequest(
+            model = settings.model,
+            apiPath = "/responses",
+            tools = payload.optJSONArray("tools"),
+            payloadBytes = wire.toByteArray(Charsets.UTF_8).size,
+            payloadSha256 = ZenDiagnostics.sha256Hex(wire.toByteArray(Charsets.UTF_8)),
+        )
         val request = requestBuilder(settings, apiKey, "${settings.resolvedBaseUrl}/responses", firstUserText)
-            .post(payload.toString().toRequestBody(JSON))
+            .post(wire.toRequestBody(JSON))
             .build()
         val call = client.newCall(request)
         activeCall = call
@@ -68,8 +76,10 @@ internal class ResponsesApiClient(
             call.execute().use { response ->
                 if (!response.isSuccessful) {
                     val body = response.body?.string().orEmpty()
+                    ZenDiagnostics.logResponse(response.code, ZenDiagnostics.errorTypeOf(body), response.protocol.name)
                     throw response.apiError(settings, body)
                 }
+                ZenDiagnostics.logResponse(response.code, null, response.protocol.name)
                 val source = response.body?.source() ?: throw IOException("伺服器沒有回傳內容")
                 val thinkTags = ThinkTagStreamParser()
                 var finishSent = false
@@ -120,19 +130,17 @@ internal class ResponsesApiClient(
     ): JSONObject {
         // muse-spark 全系需要 developer 角色承載系統指示（pi-ai convertResponsesMessages 同規則）。
         val instructionRole = if (isResponsesModel(settings.model)) "developer" else "system"
-        // 第三道門（#108 / PR #110）：system/developer 指示要帶字面 <env> 區塊。
-        val existingInstructions = messages
-            .filter { it.role == "system" || it.role == "developer" }
-            .joinToString("\n") { it.content }
-        val environment = ZenDisguise.environmentSuffix(existingInstructions)
-        // 沒有指示訊息可掛時，自己補一則在最前面，否則 <env> 無處可放。
-        val hasInstruction = messages.any { it.role == "system" || it.role == "developer" }
-        val needsOwnInstruction = environment.isNotEmpty() && !hasInstruction
+        // 第三道門（#108 / PR #110）：只有第一個 <env> 區塊會被檢查，
+        // 且必須含 Working directory。缺了要在該區塊內補齊，不能往後疊第二個。
+        val instructionMessages = messages.filter { it.role == "system" || it.role == "developer" }
+        val combined = instructionMessages.joinToString("\n") { it.content }
+        val fix = ZenDisguise.planEnvironmentFix(combined)
+        val needsOwnInstruction = fix is ZenDisguise.EnvironmentFix.AppendToFirstSystem && instructionMessages.isEmpty()
         val input = JSONArray()
         if (needsOwnInstruction) {
             input.put(JSONObject().put("role", instructionRole).put("content", ZenDisguise.environmentBlock()))
         }
-        var environmentAttached = false
+        var firstInstructionSeen = false
         messages.forEach { message ->
             when (message.role) {
                 // assistant 歷史必須回放成 output_text 的 message 項；input_text 只能出現在 user 身上。
@@ -145,12 +153,18 @@ internal class ResponsesApiClient(
                         .put("text", message.content)
                         .put("annotations", JSONArray()))))
                 "system", "developer" -> {
-                    // 只掛在第一則指示上，多則 system 不會重複插入同一段 <env>。
-                    val suffix = if (environmentAttached) "" else environment
-                    if (suffix.isNotEmpty()) environmentAttached = true
-                    input.put(JSONObject()
-                        .put("role", instructionRole)
-                        .put("content", message.content + suffix))
+                    // 只處理第一則指示：補齊既有區塊或附加新區塊，其餘指示原樣保留。
+                    var content = message.content
+                    if (!firstInstructionSeen) {
+                        firstInstructionSeen = true
+                        content = when (fix) {
+                            is ZenDisguise.EnvironmentFix.AlreadyValid -> content
+                            is ZenDisguise.EnvironmentFix.InsertIntoFirstBlock ->
+                                content.replace(fix.originalFirstBlock, fix.fixedFirstBlock)
+                            is ZenDisguise.EnvironmentFix.AppendToFirstSystem -> content + fix.suffix
+                        }
+                    }
+                    input.put(JSONObject().put("role", instructionRole).put("content", content))
                 }
                 else -> {
                     val content = JSONArray().put(JSONObject()

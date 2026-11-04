@@ -240,11 +240,61 @@ class ResponsesApiClientTest {
         assertTrue(block.startsWith("<env>"))
         assertTrue(block.endsWith("</env>"))
         assertTrue(block.contains("Working directory: ."))
-        // 已經有 <env> 就不重複插。
-        assertEquals("", ZenDisguise.environmentSuffix("system prompt\n<env>\n  Platform: x\n</env>"))
-        assertTrue(ZenDisguise.environmentSuffix("system prompt").contains("<env>"))
-        // 完全沒有指示時仍要補。
-        assertTrue(ZenDisguise.environmentSuffix("").contains("<env>"))
+        // 完整第一區塊 → 不變動。
+        assertTrue(ZenDisguise.planEnvironmentFix("system prompt\n$block") is
+            ZenDisguise.EnvironmentFix.AlreadyValid)
+        // 沒有 <env> → 附加新區塊。
+        assertTrue(ZenDisguise.planEnvironmentFix("system prompt") is
+            ZenDisguise.EnvironmentFix.AppendToFirstSystem)
+    }
+
+    @Test fun incompleteFirstEnvironmentBlockIsRepairedInPlace() {
+        // 2026-11-04 實測：第一個 <env> 缺 Working directory 時，
+        // 往後追加第二個完整區塊仍 429；必須在第一個區塊內補齊。
+        val partial = "<env>\n  Platform: win32\n</env>"
+        val fix = ZenDisguise.planEnvironmentFix("sys A\n\n$partial")
+        assertTrue(fix is ZenDisguise.EnvironmentFix.InsertIntoFirstBlock)
+        val repaired = (fix as ZenDisguise.EnvironmentFix.InsertIntoFirstBlock).fixedFirstBlock
+        assertTrue(repaired.contains("Working directory: ."))
+        assertTrue(repaired.contains("Platform: win32"))
+        // 只有一個 <env> 區塊，不往後疊第二個。
+        assertEquals(1, Regex("<env>").findAll(repaired).count())
+        assertTrue(repaired.startsWith("<env>"))
+        assertTrue(repaired.trimEnd().endsWith("</env>"))
+        // 補齊後再判定就是 AlreadyValid。
+        assertTrue(ZenDisguise.planEnvironmentFix(repaired) is
+            ZenDisguise.EnvironmentFix.AlreadyValid)
+    }
+
+    @Test fun chatPayloadRepairsFirstEnvironmentBlockWithoutAppendingSecond() {
+        val partial = "<env>\n  Platform: win32\n</env>"
+        val messages = AiApiClient().chatPayload(
+            AppSettings(provider = Provider.ZEN, model = "big-pickle"),
+            listOf(
+                ApiChatMessage("system", "sys A\n\n$partial"),
+                ApiChatMessage("system", "sys B"),
+                ApiChatMessage("user", "hi"),
+            ), true, ReasoningMode.AUTO,
+        ).getJSONArray("messages")
+        val first = messages.getJSONObject(0).getString("content")
+        assertTrue(first.contains("Working directory: ."))
+        // 全域只有一個 <env>，第二則 system 完全沒被動。
+        assertEquals(1, Regex("<env>").findAll(first).count())
+        assertEquals("sys B", messages.getJSONObject(1).getString("content"))
+        assertEquals("hi", messages.getJSONObject(2).getString("content"))
+    }
+
+    @Test fun responsesPayloadRepairsFirstEnvironmentBlock() {
+        val partial = "<env>\n  Platform: win32\n</env>"
+        val input = client().responsesPayload(
+            settings,
+            listOf(ApiChatMessage("system", "sys\n\n$partial"), ApiChatMessage("user", "hi")),
+            ReasoningMode.AUTO, null, "hi",
+        ).getJSONArray("input")
+        val first = input.getJSONObject(0).getString("content")
+        assertTrue(first.contains("Working directory: ."))
+        assertEquals(1, Regex("<env>").findAll(first).count())
+        assertEquals("developer", input.getJSONObject(0).getString("role"))
     }
 
     @Test fun chatPayloadCarriesEnvironmentBlockForZenOnly() {

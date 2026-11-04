@@ -100,12 +100,17 @@ internal fun isResponsesModel(model: String): Boolean =
     model.startsWith("muse-spark", ignoreCase = true)
 
 /**
- * 在 Zen 匿名通道上實際打通過的模型（個人單機驗證；名單會隨通道狀態輪換）。
+ * 在 Zen 匿名通道上實測過的模型（個人單機驗證；名單會隨通道狀態輪換）。
  *
- * 2026-10-28 對照 /inference/v1/models 的現行目錄更新：`deepseek-v4-flash`、
- * `glm-5`、`glm-5.2`、`kimi-k2.6`、`qwen3.6-plus`、`gpt-5.3-codex` 已下架或
- * 不在免費名單，改成目錄裡帶 `-free` 的現役 id。`big-pickle` 沒有 free 後綴
- * 但實測走 completions 可通，保留。
+ * 2026-11-04 對照 /inference/v1/models（80 個）更新：
+ * - 新增 nemotron-3.5-super-vl-free、pulse-alpha-free、crouton-alpha-free
+ * - jev-1.13-free 已下架
+ * - muse-spark-1.3-contributor-free 已下架，目錄現為 muse-spark-1.3；
+ *   但該 id 對匿名通道目前回 401 Missing API key，暫不列入白名單。
+ *   Responses 路徑與整套支援保留，只因目前無可用免費 Responses 模型而不啟用。
+ *
+ * 本輪實測所有現役 free 模型都能走 /chat/completions；這只是「當下能力」，
+ * 不構成永久刪除 Responses 支援的理由。路由依模型能力與實測結果決定。
  */
 internal val ZEN_VERIFIED_MODELS = setOf(
     "big-pickle",
@@ -113,9 +118,11 @@ internal val ZEN_VERIFIED_MODELS = setOf(
     "glm-5.3-flash-free",
     "deepseek-v4.1-flash-free",
     "nemotron-3.5-lightning-free",
+    "nemotron-3.5-super-vl-free",
     "beam-free",
     "flint-40b-free",
-    "muse-spark-1.3-contributor-free",
+    "pulse-alpha-free",
+    "crouton-alpha-free",
 )
 
 internal fun validateReasoningMode(settings: AppSettings, mode: ReasoningMode) {

@@ -74,9 +74,10 @@
 - [下載測試版 APK：TingXueJu-oc-zen-test.apk](releases/TingXueJu-oc-zen-test.apk)（v1.17，versionCode 18）
 - 內含 `oc` 分支的 OpenCode Zen 免費通道（匿名 key `public`，免設定即用）。
 - 已跟進 2026-10-28 的新門檻（opencode2dsh #108 / PR #110）：v2 形式 UA、`<env>` 環境區塊、`/inference/openai/v1` 推理端點。
-- 實測可用：`big-pickle`、`mimo-v2.6-flash-free`、`glm-5.3-flash-free`、`deepseek-v4.1-flash-free`（chat 路徑）、`muse-spark-1.3-contributor-free`（responses 路徑）。其他模型名單會隨通道狀態輪換，能用才留。
+- 2026-11-04 維護修正：第一個 `<env>` 區塊缺 `Working directory` 時在**區塊內補齊**（往後疊第二個區塊實測仍 429）；模型名單對照現行目錄更新；新增診斷日誌（只記模型／引擎／HTTP 狀態／工具數與大小／本文 SHA-256，不含憑證與對話內容）。Responses 支援與路由完整保留。
+- 實測可用（chat 路徑）：`big-pickle`、`mimo-v2.6-flash-free`、`glm-5.3-flash-free`、`deepseek-v4.1-flash-free`、`beam-free`、`flint-40b-free`、`pulse-alpha-free`、`crouton-alpha-free`。名單會隨通道狀態輪換。
 - 免費通道隨時可能限流、地區拒絕或失效；顯示的錯誤會跟「Key 無效」區分開。
-- ⚠️ 上游這一輪除了比對 UA 與 body 形狀，還要比對 TLS 指紋：桌面上只有 Bun（BoringSSL）放行，Node／curl／JDK 三種堆疊全被擋。Android 的 OkHttp 走 Conscrypt（同樣源自 BoringSSL），**能否放行尚未實測驗證**；額度按 IP 計，一次測試就會用掉配額。
+- ⚠️ **`429 FreeUsageLimitError` 目前無解**：2026-11-04 對照測試（同一份 653-byte 本文、SHA-256 `67b2f32a…`、同一出口 IP、同一 UA）顯示 Bun 1.4.4 連續 3 次 200，而 Node／curl／JDK、**Android App（OkHttp/Conscrypt）**、**Android 15 系統 HttpEngine（native Cronet 121.0.6167.71）** 全部 429。決定性變因是 TLS ClientHello 指紋，非 header、工具體積、`<env>` 或端點。結論：**尚未找到可用的 Android 直連傳輸**；上述維護修正**並未解除 429**。後續方向為中繼或更高成本的原生 TLS 實作。
 
 ## 快速開始
 

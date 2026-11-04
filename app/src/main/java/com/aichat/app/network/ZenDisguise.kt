@@ -153,37 +153,82 @@ internal object ZenDisguise {
     }
 
     /**
-     * 第三道門（#108 / PR #110）：系統指示裡必須出現字面 `<env>…</env>`。
+     * 第三道門（#108 / PR #110）：系統指示裡必須出現字面 `<env>…</env>`，
+     * 而且**只有第一個區塊會被檢查**。
      *
-     * 實測：把同樣的內容寫成「Working directory: .」純文字仍 429，只有 `<env>` 標籤過。
-     * 已有 `<env>` 區塊就原樣不動（避免覆蓋呼叫端自己的環境描述）。
+     * 2026-11-04 實測（Bun，同 session／同本文，只改 system）：
+     * - 單一完整 `<env>` → 200
+     * - 只有 Platform、缺 Working directory → 429
+     * - 不完整區塊 + 往後追加第二個完整區塊 → 429（後面追加無效）
+     * - 在第一個區塊內補齊 Working directory → 200
+     * - 兩則 system：第一則完整 → 200；第一則不完整、第二則完整 → 429
+     *
+     * 因此一律在**第一個既有區塊內補齊**，不往後疊第二個。
      */
     fun environmentBlock(): String =
         "<env>\n  Working directory: .\n  Platform: $ENVIRONMENT_PLATFORM\n</env>"
 
-    /** 缺 `<env>` 才補；`existing` 是該請求目前所有 system/developer 指示的合併文字。 */
-    fun environmentSuffix(existing: String): String =
-        if (ENV_BLOCK.containsMatchIn(existing)) "" else "\n\n${environmentBlock()}"
+    private const val WORKING_DIRECTORY_LINE = "Working directory:"
 
-    /** chat completions：把 `<env>` 併進既有的 system 訊息，沒有就插一則在最前面。 */
+    /**
+     * 把「合併後的系統指示」整理成可放行的形式：
+     * - 已有完整第一區塊 → 原樣回傳 null；
+     * - 有 `<env>` 但缺 Working directory → 回傳補齊後的**整段**（由呼叫端替換第一區塊）；
+     * - 完全沒有 `<env>` → 回傳要附加到第一則 system 的後綴。
+     */
+    internal sealed interface EnvironmentFix {
+        object AlreadyValid : EnvironmentFix
+        data class InsertIntoFirstBlock(val fixedFirstBlock: String, val originalFirstBlock: String) : EnvironmentFix
+        data class AppendToFirstSystem(val suffix: String) : EnvironmentFix
+    }
+
+    fun planEnvironmentFix(existing: String): EnvironmentFix {
+        val match = ENV_BLOCK.find(existing)
+        if (match == null) return EnvironmentFix.AppendToFirstSystem("\n\n${environmentBlock()}")
+        val block = match.value
+        if (block.lines().any { it.trimStart().startsWith(WORKING_DIRECTORY_LINE) }) {
+            return EnvironmentFix.AlreadyValid
+        }
+        // 在第一個區塊內補，保留原有縮排與其餘內容。
+        val lines = block.lines().toMutableList()
+        val closingIndex = lines.indexOfLast { it.trim() == "</env>" }
+        val insertAt = if (closingIndex >= 0) closingIndex else lines.size
+        val indent = lines.getOrNull(1)?.takeWhile { it == ' ' } ?: "  "
+        lines.add(insertAt, "${indent}Working directory: .")
+        return EnvironmentFix.InsertIntoFirstBlock(lines.joinToString("\n"), block)
+    }
+
+    /** chat completions：只修第一則 system／developer 指示，不新增第二個 `<env>`。 */
     fun applyEnvironment(messages: JSONArray) {
-        val systems = (0 until messages.length())
-            .mapNotNull { messages.optJSONObject(it) }
-            .filter { it.optString("role") == "system" || it.optString("role") == "developer" }
-        val existing = systems.joinToString("\n") { it.optString("content") }
-        val suffix = environmentSuffix(existing)
-        if (suffix.isEmpty()) return
-        val target = systems.firstOrNull { it.optString("role") == "system" }
-        if (target != null) {
-            target.put("content", target.optString("content") + suffix)
-        } else {
-            // 只有 developer 或完全沒有 system 時，插一則新的在最前面。
-            val inserted = JSONObject().put("role", "system").put("content", environmentBlock())
-            val copy = JSONArray()
-            copy.put(inserted)
-            for (index in 0 until messages.length()) copy.put(messages.get(index))
-            for (index in messages.length() - 1 downTo 0) messages.remove(index)
-            for (index in 0 until copy.length()) messages.put(copy.get(index))
+        val entries = (0 until messages.length()).mapNotNull { index ->
+            messages.optJSONObject(index)?.let { index to it }
+        }
+        val instructions = entries.filter { (_, obj) ->
+            obj.optString("role") == "system" || obj.optString("role") == "developer"
+        }
+        val combined = instructions.joinToString("\n") { (_, obj) -> obj.optString("content") }
+        when (val fix = planEnvironmentFix(combined)) {
+            is EnvironmentFix.AlreadyValid -> Unit
+            is EnvironmentFix.InsertIntoFirstBlock -> {
+                // 只替換「第一個區塊」所在的那則指示，其餘訊息完全不動。
+                val owner = instructions.firstOrNull { (_, obj) ->
+                    ENV_BLOCK.containsMatchIn(obj.optString("content"))
+                } ?: return
+                val text = owner.second.optString("content")
+                owner.second.put("content", text.replace(fix.originalFirstBlock, fix.fixedFirstBlock))
+            }
+            is EnvironmentFix.AppendToFirstSystem -> {
+                val target = instructions.firstOrNull()?.second
+                if (target != null) {
+                    target.put("content", target.optString("content") + fix.suffix)
+                } else {
+                    val inserted = JSONObject().put("role", "system").put("content", environmentBlock())
+                    val copy = JSONArray().put(inserted)
+                    for (index in 0 until messages.length()) copy.put(messages.get(index))
+                    for (index in messages.length() - 1 downTo 0) messages.remove(index)
+                    for (index in 0 until copy.length()) messages.put(copy.get(index))
+                }
+            }
         }
     }
 

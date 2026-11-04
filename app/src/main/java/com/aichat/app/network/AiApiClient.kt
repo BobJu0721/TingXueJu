@@ -86,9 +86,19 @@ class AiApiClient(
         }
         requestMutex.withLock { withContext(Dispatchers.IO) {
             val payload = chatPayload(settings, messages, stream = true, reasoningMode = reasoningMode, options = options)
+            val wire = payload.toString()
+            if (settings.provider == Provider.ZEN) {
+                ZenDiagnostics.logRequest(
+                    model = settings.model,
+                    apiPath = "/chat/completions",
+                    tools = payload.optJSONArray("tools"),
+                    payloadBytes = wire.toByteArray(Charsets.UTF_8).size,
+                    payloadSha256 = ZenDiagnostics.sha256Hex(wire.toByteArray(Charsets.UTF_8)),
+                )
+            }
             val request = requestBuilder(settings, apiKey, "${settings.resolvedBaseUrl}/chat/completions",
                 firstUserText = messages.firstOrNull { it.role == "user" }?.content)
-                .post(payload.toString().toRequestBody(JSON))
+                .post(wire.toRequestBody(JSON))
                 .build()
             val call = client.newCall(request)
             activeStreamCall = call
@@ -96,7 +106,13 @@ class AiApiClient(
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
                         val body = response.body?.string().orEmpty()
+                        if (settings.provider == Provider.ZEN) {
+                            ZenDiagnostics.logResponse(response.code, ZenDiagnostics.errorTypeOf(body), response.protocol.name)
+                        }
                         throw response.apiError(settings, body)
+                    }
+                    if (settings.provider == Provider.ZEN) {
+                        ZenDiagnostics.logResponse(response.code, null, response.protocol.name)
                     }
                     val source = response.body?.source() ?: throw IOException("伺服器沒有回傳內容")
                     val thinkTags = ThinkTagStreamParser()

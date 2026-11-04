@@ -145,17 +145,18 @@ class ReasoningPolicyTest {
         ).getString("tool_choice"))
     }
 
-    @Test fun zenResponsesModelsRouteToResponsesPolicy() {
-        val verified = AppSettings(provider = Provider.ZEN, model = "muse-spark-1.3-contributor-free")
-        assertEquals(ReasoningPolicy.ZEN_RESPONSES, reasoningPolicy(verified.provider, verified.model))
-        for (mode in ReasoningMode.entries) {
-            validateReasoningMode(verified, mode)
-        }
+    @Test fun zenResponsesRoutingIsPreservedEvenWithNoVerifiedResponsesModel() {
+        // Responses 支援與路由本身保留；只是目前沒有可用的免費 Responses 模型，
+        // 因此 muse-spark 系列一律退回 UNKNOWN（僅 AUTO）。
+        val responsesShaped = AppSettings(provider = Provider.ZEN, model = "muse-spark-1.3")
+        assertEquals(ReasoningPolicy.UNKNOWN, reasoningPolicy(responsesShaped.provider, responsesShaped.model))
+        assertTrue(isResponsesModel(responsesShaped.model))
         // completions 形狀的 payload 不該給 responses 模型加 reasoning 參數。
-        val body = AiApiClient().chatPayload(verified, listOf(ApiChatMessage("user", "test")), true, ReasoningMode.ON)
+        val body = AiApiClient().chatPayload(responsesShaped, listOf(ApiChatMessage("user", "test")), true, ReasoningMode.AUTO)
         assertFalse(body.has("reasoning"))
         assertFalse(body.has("reasoning_effort"))
-        // 未驗證的 muse-spark 只能 AUTO。
+        // 路由函式仍存在且可用（不因白名單變動而失效）。
+        assertTrue(AiApiClient().usesResponsesApi(responsesShaped))
         val unlisted = AppSettings(provider = Provider.ZEN, model = "muse-spark-9.9-unknown-free")
         assertEquals(ReasoningPolicy.UNKNOWN, reasoningPolicy(unlisted.provider, unlisted.model))
         validateReasoningMode(unlisted, ReasoningMode.AUTO)
