@@ -75,8 +75,42 @@ class BranchTreeTest {
             val nodes = tree.visible(tree.nodes.keys, "b0")
             val layout = layoutBranchTree(nodes, nodes.associate { it.id to 100f })
             val levels = layout.bounds.values.groupBy { it.y }
-            levels.values.forEach { rects -> rects.sortedBy { it.x }.zipWithNext().forEach { (a, b) -> assertTrue(a.x + a.width + 23.9f <= b.x) } }
+            levels.values.forEach { rects -> rects.sortedBy { it.x }.zipWithNext().forEach { (a, b) -> assertTrue(a.x + a.width + 63.9f <= b.x) } }
             println("BranchTree $branches routes ${branches * length} relations: ${elapsed}ms")
         }
+    }
+
+    @Test fun compactLayoutKeepsNodeWidthsGapsAndOuterPadding() {
+        fun node(id: String, parent: String?, vararg children: String) =
+            BranchTreeNode(id, parent, children.toList(), emptyList(), emptyList(), emptyList())
+        for ((count, expectedWidth) in listOf(2 to 408f, 3 to 620f)) {
+            val children = (1..count).map { "leaf$it" }
+            val nodes = listOf(node("root", null, *children.toTypedArray())) + children.map { node(it, "root") }
+            val layout = layoutBranchTree(nodes, nodes.associate { it.id to 80f })
+            assertEquals(expectedWidth, layout.width, 0.001f)
+            assertTrue(layout.bounds.values.all { it.width == 148f })
+            val root = layout.bounds.getValue("root")
+            assertEquals(24f, root.y, 0.001f)
+            val leaves = children.map { layout.bounds.getValue(it) }
+            assertEquals(24f, leaves.first().x, 0.001f)
+            assertEquals(24f, layout.width - leaves.last().x - leaves.last().width, 0.001f)
+            leaves.forEach { assertEquals(26f, it.y - root.y - root.height, 0.001f) }
+            leaves.zipWithNext().forEach { (a, b) -> assertEquals(64f, b.x - a.x - a.width, 0.001f) }
+            assertEquals(layout.width / 2, root.centerX, 0.001f)
+        }
+    }
+
+    @Test fun nextLevelStartsBelowTallestParentAndSiblingSubtreesDoNotOverlap() {
+        fun node(id: String, parent: String?, vararg children: String) =
+            BranchTreeNode(id, parent, children.toList(), emptyList(), emptyList(), emptyList())
+        val nodes = listOf(node("root", null, "a", "b"), node("a", "root", "a1", "a2"),
+            node("a1", "a"), node("a2", "a"), node("b", "root", "b1"), node("b1", "b"))
+        val layout = layoutBranchTree(nodes, nodes.associate { it.id to if (it.id == "a") 140f else 80f })
+        val a = layout.bounds.getValue("a")
+        val b = layout.bounds.getValue("b")
+        listOf("a1", "a2", "b1").forEach {
+            assertEquals(26f, layout.bounds.getValue(it).y - maxOf(a.y + a.height, b.y + b.height), 0.001f)
+        }
+        assertTrue(layout.bounds.getValue("b1").x - layout.bounds.getValue("a2").let { it.x + it.width } >= 64f)
     }
 }

@@ -28,8 +28,9 @@
 - **多端點管理**：內建 OpenRouter、Groq、Cerebras、Agnes、Cloudflare Workers AI，也可新增多個自訂 OpenAI 相容端點。
 - **模型與思考模式**：取得、搜尋或手動輸入模型 ID；每段對話可獨立設定「自動、開啟、關閉」思考模式。
 - **串流聊天**：即時顯示正文與可折疊的思考內容；AI 訊息操作列可查看輸出 token 數與平均 token/s。
+- **Markdown 正文**：支援標題、可左右捲動的表格、粗體及程式碼；複製訊息仍保留原始 Markdown。
 - **訊息版本與分支**：使用者與 AI 訊息都能保存多個版本與各自的後續對話；切換版本恢復對應路線，支援 AI 生成另一版及續寫。
-- **對話分支樹**：從聊天室「更多 → 對話分支」查看保存的故事路線，支援展開／收合、拖動、縮放、只讀預覽與精準切換，不刪除其他路線。
+- **對話分支列表**：從聊天室「更多 → 對話分支」查看保存的故事路線。支援展開／收合、上下瀏覽及左右捲動，保留深層縮排、只讀預覽與精準切換。
 - **本場劇情提示**：每條分支可獨立保存場景、劇情方向與敘事要求；新分支繼承來源提示。
 - **手動創作**：從聊天輸入框旁的「創作」選單加入旁白、指定角色台詞或私人註記；手寫故事內容可再要求 AI 接話。
 - **AI 代擬**：先預覽下一則使用者回覆，可停止或再擬一版；確認後填入輸入框，由使用者自行送出。
@@ -53,10 +54,10 @@
 
 ### 最新版本
 
-目前版本為 **v1.17**：
+目前版本為 **v1.18**：
 
-- [下載簽章版 APK：TingXueJu-v1.17-release.apk](https://github.com/BobJu0721/TingXueJu/releases/download/v1.17/TingXueJu-v1.17-release.apk)
-- [查看 v1.17 發布說明](https://github.com/BobJu0721/TingXueJu/releases/tag/v1.17)
+- [下載簽章版 APK：TingXueJu-v1.18-release.apk](https://github.com/BobJu0721/TingXueJu/releases/download/v1.18/TingXueJu-v1.18-release.apk)
+- [查看 v1.18 發布說明](https://github.com/BobJu0721/TingXueJu/releases/tag/v1.18)
 - [瀏覽所有 Releases](https://github.com/BobJu0721/TingXueJu/releases)
 
 安裝方式：
@@ -153,10 +154,10 @@ docs/                 文件與畫面資產
 
 ## 專案狀態
 
-- 最新穩定版本：**v1.17**
+- 最新穩定版本：**v1.18**
 - 最低系統版本：**Android 12 / API 31**
 - 目前僅支援雲端 API，不支援直接連接本地模型
-- v1.17 新增對話分支樹、路線預覽及精準切換，並將整個 App 固定為直向顯示
+- v1.18 將對話分支改為手機樹狀列表，並為聊天正文加入 Markdown 標題與表格
 
 詳細版本內容請查看[更新公告](更新公告.md)與 [GitHub Releases](https://github.com/BobJu0721/TingXueJu/releases)。
 

@@ -40,6 +40,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -154,6 +155,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
     val isWorldSetImporting by worldSetsViewModel.isImporting.collectAsStateWithLifecycle()
     val language = settings.language
     val navController = rememberNavController()
+    val branchListStateHolder = rememberSaveableStateHolder()
     val parentBackDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     val lifecycleOwner = LocalLifecycleOwner.current
     var hasBackTarget by remember { mutableStateOf(false) }
@@ -311,7 +313,7 @@ fun AIChatApp(viewModelFactory: ViewModelProvider.Factory) {
                 page(AppRoute.CHAT_STORY) { ChatStoryScreen(chatViewModel, language) { navController.navigateUp() } }
                 page(AppRoute.CHAT_BRANCHES) {
                     val treeViewModel: BranchTreeViewModel = composeViewModel(factory = viewModelFactory)
-                    ChatBranchScreen(treeViewModel, chatViewModel, language) { navController.navigateUp() }
+                    ChatBranchScreen(treeViewModel, chatViewModel, language, branchListStateHolder) { navController.navigateUp() }
                 }
                 page(AppRoute.CHAT_MEMORY) { ChatMemoryScreen(chatViewModel, language) { navController.navigateUp() } }
                 page(AppRoute.CHAT_REPLY_SETTINGS) { ChatReplySettingsScreen(chatViewModel, language) { navController.navigateUp() } }

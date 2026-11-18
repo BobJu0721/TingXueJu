@@ -28,6 +28,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+private const val MIN_TREE_SCALE = 0.4f
+private const val MAX_TREE_SCALE = 1.6f
+private const val NODE_PADDING = 12f
+
 @Composable
 internal fun BranchTreeCanvas(
     nodes: List<BranchTreeNode>, labels: Map<String, String>, activeBranch: String, focusId: String,
@@ -49,7 +53,7 @@ internal fun BranchTreeCanvas(
             val heights = nodes.associate { node ->
                 val measured = measurer.measure(labels[node.id].orEmpty(), style = style,
                     maxLines = 3, overflow = TextOverflow.Ellipsis,
-                    constraints = Constraints(maxWidth = with(density) { 176.dp.roundToPx() }))
+                    constraints = Constraints(maxWidth = with(density) { (BRANCH_TREE_NODE_WIDTH - NODE_PADDING * 2).dp.roundToPx() }))
                 node.id to maxOf(80f, with(density) { measured.size.height.toDp().value } + 24f)
             }
             layoutBranchTree(nodes, heights)
@@ -60,20 +64,23 @@ internal fun BranchTreeCanvas(
         panX = viewport.width / (2 * density.density) - rect.centerX * scale
         panY = viewport.height / (2 * density.density) - (rect.y + rect.height / 2) * scale
     }
+    fun fit() {
+        val width = viewport.width / density.density
+        val height = viewport.height / density.density
+        scale = minOf(width / layout.width, height / layout.height).coerceIn(MIN_TREE_SCALE, MAX_TREE_SCALE)
+        panX = (width - layout.width * scale) / 2
+        panY = (height - layout.height * scale) / 2
+    }
     LaunchedEffect(layout, viewport, command) {
-        if (viewport == IntSize.Zero || layout.bounds.isEmpty()) return@LaunchedEffect
-        if (!initialized) { center(focusId); initialized = true }
+        if (viewport.width <= 0 || viewport.height <= 0 || layout.bounds.isEmpty() ||
+            layout.width <= 0f || layout.height <= 0f) return@LaunchedEffect
+        if (!initialized) { fit(); initialized = true }
         if (command.first > consumedCommand) {
             when (command.second) {
                 "current" -> center(focusId)
-                "fit" -> {
-                    scale = minOf(viewport.width / density.density / layout.width,
-                        viewport.height / density.density / layout.height).coerceIn(0.6f, 1.6f)
-                    panX = (viewport.width / density.density - layout.width * scale) / 2
-                    panY = (viewport.height / density.density - layout.height * scale) / 2
-                }
+                "fit" -> fit()
                 else -> {
-                    val next = (scale + if (command.second == "in") 0.2f else -0.2f).coerceIn(0.6f, 1.6f)
+                    val next = (scale + if (command.second == "in") 0.2f else -0.2f).coerceIn(MIN_TREE_SCALE, MAX_TREE_SCALE)
                     val cx = viewport.width / density.density / 2; val cy = viewport.height / density.density / 2
                     panX = cx - (cx - panX) * next / scale; panY = cy - (cy - panY) * next / scale
                     scale = next
@@ -95,7 +102,7 @@ internal fun BranchTreeCanvas(
     Box(modifier.testTag("branch-tree-canvas").clipToBounds().onSizeChanged { viewport = it }.pointerInput(density) {
         detectTransformGestures { centroid, pan, zoom, _ ->
             val old = latestScale
-            val next = (old * zoom).coerceIn(0.6f, 1.6f)
+            val next = (old * zoom).coerceIn(MIN_TREE_SCALE, MAX_TREE_SCALE)
             val c = centroid / density.density
             panX = c.x - (c.x - panX) * next / old + pan.x / density.density
             panY = c.y - (c.y - panY) * next / old + pan.y / density.density
@@ -131,7 +138,7 @@ internal fun BranchTreeCanvas(
                     color = if (current) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                     border = androidx.compose.foundation.BorderStroke(if (current) 2.dp else 1.dp,
                         if (current) primary else neutral)) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.Center) {
+                    Column(Modifier.padding(NODE_PADDING.dp), verticalArrangement = Arrangement.Center) {
                         labels[node.id].orEmpty().lines().take(3).forEach { line ->
                             Text(line, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
